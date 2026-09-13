@@ -12,15 +12,36 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// --- Business / Affiliate, Phase-00 (opportunity list — manual, no scoring yet) ---
+
+model Opportunity {
+  id        String   @id @default(cuid())
+  name      String
+  category  String?
+  notes     String?
+  status    String   @default("researching") // researching | shortlisted | live
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@map("opportunities")
+}
+
 // --- Affiliate Engine, Phase-00 (Affiliate-05: link generator + click tracking) ---
 
 model AffiliateLink {
   id             String   @id @default(cuid())
   provider       String // e.g. "amazon-associates" (adapter key — not business logic)
-  offer          String? // offer/product identifier from the provider
+  offer          String? // offer/product identifier from the provider (ASIN for Amazon)
   campaign       String? // campaign label (Phase-00 simplification: campaigns are later-phase entities)
   destination    String
   trackingParams Json?
+  // Manual product metadata for Phase-00 (no PA-API). Auto-fetch arrives by replacing
+  // the product-data provider (interface in apps/api) — this stays manual until then.
+  productTitle   String?
+  productImageUrl String?
+  productPrice   String?
+  productCurrency String?
   createdAt      DateTime @default(now())
   clicks         AffiliateLinkClick[]
   revenueEvents  RevenueEvent[]

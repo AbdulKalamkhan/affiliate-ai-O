@@ -9,7 +9,7 @@
 ## Affiliate networks
 | Network | Status | Notes |
 |---|---|---|
-| Amazon Associates | (not connected yet) | Primary — PA-API needs 3 qualifying sales / 180 days to keep access |
+| Amazon Associates | CONNECTED (SiteStripe / manual tag) | Store ID: zorajewellery-21. Tag appended manually to enterable Amazon product URLs — NO PA-API. PA-API BLOCKED: requires 10 qualifying sales in the trailing 30 days (0 today). Product-data provider = `manual` behind the Affiliate-01 interface (ProductDataProvider); a PA-API adapter is a future DI/provider change only. |
 | Flipkart Affiliate | (not connected) | Backup network — add after Phase 00 gate passes |
 | Others | (not connected) | |
 

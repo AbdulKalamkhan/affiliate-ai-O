@@ -5,9 +5,9 @@
 ## Up next (Phase 00 — do these in order)
 1. [x] ARCH-01 — Repository First-Boot Audit (2026-09-13) — docs-only bootstrap, no code exists; baseline recorded in 03_DEVELOPMENT_STATUS.md
 2. [x] Set up Turborepo monorepo skeleton (apps/web, apps/api minimal) (2026-09-13)
-3. [x] Set up PostgreSQL + Prisma, minimal schema: `affiliate_links`, `affiliate_link_clicks`, `revenue_events`, `profit_records` (2026-09-13, migration `20260913132220_init`)
-4. [ ] Simple opportunity list (manual entry is fine for MVP)
-5. [ ] Affiliate link generator + click tracking endpoint
+3. [x] Set up PostgreSQL + Prisma, minimal schema: affiliate_links, affiliate_link_clicks, opportunities, revenue_events, profit_records (2026-09-13, migrations 20260913132220_init + 20260913135814_add_opportunities_and_product_fields)
+4. [x] Simple opportunity list — `opportunities` table + CRUD via API (2026-09-13, TASK 4)
+5. [x] Affiliate link generator (Associate Tag appended manually, no PA-API) + click-tracking redirect endpoint (2026-09-13, TASK 5)
 6. [ ] Manual publish to ONE content channel (pick one — do not do all three)
 7. [ ] Minimal dashboard page showing clicks/conversions/profit
 8. [ ] VERIFY-01 — Universal Completion Prompt before marking Phase 00 done
@@ -22,3 +22,5 @@
 - 2026-09-13: ARCH-01 Repository First-Boot Audit
 - 2026-09-13: Phase-00 monorepo skeleton (Turborepo + npm workspaces; apps/api NestJS, apps/web Next.js)
 - 2026-09-13: PostgreSQL + Prisma schema + init migration (5 tables in db `aios`)
+- 2026-09-13: TASK 4 — simple opportunity list (opportunities CRUD via API)
+- 2026-09-13: TASK 5 — affiliate link generator (manual tag, no PA-API) + click-tracking redirect

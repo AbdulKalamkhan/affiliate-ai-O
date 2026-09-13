@@ -11,6 +11,7 @@
     "test": "jest"
   },
   "dependencies": {
+    "@ai-os/database": "0.1.0",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
@@ -19,6 +20,7 @@
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",
+    "@types/express": "^5.0.0",
     "@types/jest": "^29.5.14",
     "@types/node": "^24.0.0",
     "eslint": "^9.17.0",
@@ -31,6 +33,7 @@
   "jest": {
     "moduleFileExtensions": ["js", "json", "ts"],
     "rootDir": "src",
+    "setupFiles": ["./test/jest.setup.ts"],
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
