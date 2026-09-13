@@ -14,9 +14,18 @@ export function makeFakeDb(): FakeDbResult {
   const rows: Record<string, FakeRow[]> = {};
   const ensure = (name: string): FakeRow[] => (rows[name] ??= []);
 
+  const DEFAULTS: Record<string, Record<string, unknown>> = {
+  contentAsset: { published: false, disclosureAdded: false },
+};
+
+const withDefaults = (name: string, data: Record<string, unknown>): Record<string, unknown> => ({
+  ...(DEFAULTS[name] ?? {}),
+  ...data,
+});
+
   const delegate = (name: string) => ({
     create: async ({ data }: { data: Record<string, unknown> }): Promise<FakeRow> => {
-      const row: FakeRow = { id: `${name}_${ensure(name).length + 1}`, ...data };
+      const row: FakeRow = { id: `${name}_${ensure(name).length + 1}`, ...withDefaults(name, data) };
       ensure(name).push(row);
       return row;
     },
@@ -49,6 +58,9 @@ export function makeFakeDb(): FakeDbResult {
     opportunity: delegate("opportunity"),
     affiliateLink: delegate("affiliateLink"),
     affiliateLinkClick: delegate("affiliateLinkClick"),
+    contentAsset: delegate("contentAsset"),
+    revenueEvent: delegate("revenueEvent"),
+    profitRecord: delegate("profitRecord"),
   } as unknown as DbClient;
 
   return { db, rows };

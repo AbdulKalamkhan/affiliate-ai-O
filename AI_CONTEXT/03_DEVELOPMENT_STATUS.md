@@ -3,7 +3,7 @@
 **This is the most important file to keep current. Update it after every session.**
 
 ## Current phase
-`PHASE-00 — Money-First MVP` (in progress — scaffold, DB, opportunity list, link generator + click tracker done)
+`PHASE-00 — Money-First MVP` (in progress — scaffold, DB, opportunities, links+click tracker, Pinterest publishing wiring + dashboard done; only the real-conversion gate remains)
 
 ## Repository state (verified, 2026-09-13)
 - Repository initialized: YES (git, branch main, at D:\Affiliate-AI-OS)
@@ -17,29 +17,36 @@
 - Typecheck: PASS — all 3 workspaces (@ai-os/web, @ai-os/api, @ai-os/database)
 - Lint: PASS — all 3 workspaces
 - Build: PASS — nest build + next build (production)
-- Tests: PASS — @ai-os/api jest: 4 suites / 31 tests; database/web: no tests configured
-- DB connectivity: PASS — migration `20260913132220_init` applied; \dt shows affiliate_links, affiliate_link_clicks, revenue_events, profit_records, _prisma_migrations
+- Tests: PASS — @ai-os/api jest: 5 suites / 42 tests; database/web: no tests configured
+- DB connectivity: PASS — migrations `20260913132220_init` + `20260913135814_add_opportunities_and_product_fields` + `20260913142055_add_content_assets_and_channel`; \dt shows affiliate_links, affiliate_link_clicks, content_assets, opportunities, revenue_events, profit_records, _prisma_migrations
 
 ## Phase 00 checklist (target: 1-2 weeks)
 - [x] Simple opportunity list — `opportunities` table + CRUD (TASK 4, 2026-09-13)
 - [x] `affiliate_links` table + click tracker — DB + link generator + `/affiliate-links/:id/click` redirect (TASK 5, 2026-09-13)
 - [x] `revenue_events` / `profit_records` tables
-- [ ] One content channel chosen and live
-- [ ] Manual publishing working
-- [ ] Basic dashboard showing clicks/conversions/profit
-- [ ] Gate passed: at least 1 real click → conversion → commission tracked (FALSE — the 1 recorded click was an automated smoke test, NOT real traffic; do not count it)
+- [x] One content channel chosen and wired — Pinterest, MANUAL publishing, no API (TASK 6, 2026-09-13; SOC-04 automation is later phase)
+- [x] Manual publishing working — `content_assets` (pin title/description/destination/published/publishedAt) + disclosure gate before publish (TASK 6, 2026-09-13)
+- [x] Basic dashboard showing clicks/conversions/profit — web `/dashboard` + API `/dashboard/overview` (TASK 7, 2026-09-13)
+- [ ] Gate passed: at least 1 real click → conversion → commission tracked (FALSE — all clicks so far are automated smoke tests, NOT real traffic; do not count them)
 
 ## TASK 4/5 execution evidence (2026-09-13)
 - Live HTTP: opportunity create/list/patch(status→shortlisted)/delete OK; invalid status → 400 with reason; missing ids → 404.
 - LIVE affiliate link: `https://www.amazon.in/gp/product/aw/d/B08N5WRWNW?th=1&psc=1` → tagged `...&tag=zorajewellery-21`, ASIN `B08N5WRWNW` extracted, manual product fields stored with NO PA-API call.
 - Click tracking: `GET /affiliate-links/<id>/click` → HTTP 302 + correct `Location` header; `_count.clicks` = 1; userAgent/referrer stored truncated (≤512, no IP).
-- All smoke-test rows deleted afterwards (DB clean: verified 0 rows in all business tables, 2 migrations).
+- All smoke-test rows deleted afterwards (DB clean: verified 0 rows in all business tables, 3 migrations).
+
+## TASK 6/7 execution evidence (2026-09-13)
+- Channel is CONFIG, not logic: Prisma `enum Channel { PINTEREST }` + `CONTENT_CHANNELS` list + `DEFAULT_CONTENT_CHANNEL`; link `createLink` normalizes (pinterest→PINTEREST), rejects unknown values (400). No core branch on the name.
+- Content asset lifecycle (live): create (title/description/linkId) → publish without disclosure → 400 "affiliate disclosure must be added before publishing (Amazon compliance)" → set disclosure → publish OK with `publishedAt` stamped; `disclosureAdded` cannot be removed while published; unpublish clears `publishedAt`.
+- Dashboard evidence (live SSR): web `/dashboard` rendered pin title "4mm Gold Chain pin", "PINTEREST", "Published pins", and metric card **Clicks = 1** fetched server-side from API `/dashboard/overview`; overview showed `{clicks:1, contentAssets:1, publishedAssets:1, clicksByChannel:{PINTEREST:1}, conversions:0, revenue:0, profit:0}`.
+- Task-5 click redirect still works standalone (302 + Location) regardless of channel; channel recorded on link only.
+- All smoke-test rows cleaned after each run; final psql counts all 0.
 - Product-data fetch is behind `ProductDataProvider` interface (Affiliate-01 boundary). Current implementation: `manual`. PA-API adapter NOT built — slots in as a DI/provider change only.
 
 ## Blockers
 - PA-API BLOCKED: Amazon Associates account `zorajewellery-21` is active for SiteStripe/manual tagging, but PA-API requires 10 qualifying sales in the trailing 30 days (account has 0). Do NOT attempt PA-API integration. Current method: manual tag appending (no PA-API call).
-- No content channel chosen/published yet (TASK 6) — Owner must pick ONE channel (YouTube / Instagram / Pinterest) and provide account access.
+- Phase-00 GATE not yet met: needs at least 1 REAL click → conversion → commission. Requires Owner to publish real pins (Pinterest, manual via the wiring built in TASK 6).
 - No AI provider configured (not a Phase-00 core-loop blocker).
 
 ## Last updated
-2026-09-13 — TASK 4 (opportunity CRUD) + TASK 5 (tagged link generator + click-tracking redirect, manual product data, PA-API adapter seam left ready) done and verified live; 31 jest tests PASS
+2026-09-13 — TASK 6 (Pinterest manual-publishing wiring: `Channel` config enum, `content_assets` + disclosure/compliance gate; no API) + TASK 7 (dashboard: API `/dashboard/overview` + web `/dashboard`) done and verified live; 42 jest tests PASS; 12/12 Turbo tasks PASS

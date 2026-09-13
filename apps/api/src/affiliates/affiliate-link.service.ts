@@ -5,6 +5,7 @@ import type { DbClient } from "../db/db-client";
 import { DB_CLIENT } from "../db/tokens";
 import { buildTaggedUrl, extractAsin } from "./url/tag.util";
 import { MANUAL_PRODUCT_PROVIDER, PRODUCT_DATA_PROVIDER, ProductDataProvider } from "./product-data/product-data.provider";
+import { CONTENT_CHANNELS, DEFAULT_CONTENT_CHANNEL, ContentChannel } from "../content-assets/channels.config";
 
 export const DEFAULT_ASSOCIATE_TAG = "zorajewellery-21";
 export const DEFAULT_PROVIDER = "amazon-associates";
@@ -13,6 +14,7 @@ export interface CreateLinkInput {
   url: string;
   tag?: string;
   provider?: string;
+  channel?: string;
   campaign?: string;
   offer?: string;
   title?: string;
@@ -49,6 +51,10 @@ export class AffiliateLinkService {
     }
     const asin = extractAsin(input.url) ?? input.offer?.trim() ?? null;
     const provider = (input.provider ?? DEFAULT_PROVIDER).trim();
+    const channel = (input.channel ?? DEFAULT_CONTENT_CHANNEL).trim().toUpperCase() as ContentChannel;
+    if (!(CONTENT_CHANNELS as readonly string[]).includes(channel)) {
+      throw new BadRequestException(`channel must be one of: ${CONTENT_CHANNELS.join(", ")}`);
+    }
 
     // Product metadata is manual at Phase-00 (no PA-API). The provider boundary is
     // the Affiliate-01 adapter seam — a later PA-API adapter slots in via DI only.
@@ -68,6 +74,7 @@ export class AffiliateLinkService {
     return this.client.affiliateLink.create({
       data: {
         provider,
+        channel,
         offer: asin,
         campaign: input.campaign?.trim() || null,
         destination,

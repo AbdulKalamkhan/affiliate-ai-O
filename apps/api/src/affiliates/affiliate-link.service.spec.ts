@@ -89,6 +89,21 @@ describe("AffiliateLinkService", () => {
     expect(clicks[0].referrer).toBe("https://ref.example");
   });
 
+  it("defaults or normalizes the content channel (config value, no hard-coded branch)", async () => {
+    const { db } = makeFakeDb();
+    const service = new AffiliateLinkService(db, manualProvider());
+    const lower = await service.createLink({ url: "https://www.amazon.in/dp/B08N5WRWNW", channel: "pinterest" });
+    expect(lower.channel).toBe("PINTEREST");
+  });
+
+  it("rejects an unknown content channel", async () => {
+    const { db } = makeFakeDb();
+    const service = new AffiliateLinkService(db, manualProvider());
+    await expect(
+      service.createLink({ url: "https://www.amazon.in/dp/B08N5WRWNW", channel: "telegram" }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it("throws 404 when recording a click for a missing link", async () => {
     const { db } = makeFakeDb();
     const service = new AffiliateLinkService(db, manualProvider());

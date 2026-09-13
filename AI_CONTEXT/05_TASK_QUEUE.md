@@ -8,9 +8,9 @@
 3. [x] Set up PostgreSQL + Prisma, minimal schema: affiliate_links, affiliate_link_clicks, opportunities, revenue_events, profit_records (2026-09-13, migrations 20260913132220_init + 20260913135814_add_opportunities_and_product_fields)
 4. [x] Simple opportunity list — `opportunities` table + CRUD via API (2026-09-13, TASK 4)
 5. [x] Affiliate link generator (Associate Tag appended manually, no PA-API) + click-tracking redirect endpoint (2026-09-13, TASK 5)
-6. [ ] Manual publish to ONE content channel (pick one — do not do all three)
-7. [ ] Minimal dashboard page showing clicks/conversions/profit
-8. [ ] VERIFY-01 — Universal Completion Prompt before marking Phase 00 done
+6. [x] Manual publish to ONE content channel — Pinterest chosen by Owner; NO Pinterest API (SOC-04 is later phase); pins created manually via `content_assets` (2026-09-13, TASK 6)
+7. [x] Minimal dashboard page showing clicks/conversions/profit (2026-09-13, TASK 7)
+8. [ ] VERIFY-01 — Universal Completion Prompt before marking Phase 00 done (blocked on real-click gate: 1 real click → conversion → commission tracked — Owner action to publish real pins)
 
 ## Backlog (do not start before Phase 00 gate passes)
 - PHASE-01 through PHASE-12 task prompts — see AI_OS_Agent_Documentation.md Section 12

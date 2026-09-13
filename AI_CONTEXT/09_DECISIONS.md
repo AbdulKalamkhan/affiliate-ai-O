@@ -43,3 +43,19 @@ DATE: 2026-09-13
 DECISION: Package manager = npm workspaces; Prisma 6.19.3 with prisma-client-js generator; Prisma client generated into package-local node_modules per default.
 REASON: pnpm/yarn are not installed on this machine; npm workspaces + Turbo satisfy the monorepo requirement with least tooling.
 STATUS: ACTIVE
+
+DATE: 2026-09-13
+DECISION: Content channel = Pinterest (Phase-00), manual publishing ONLY — no Pinterest API (SOC-04 is a later phase). Channel modeled as a config enum (`Channel.PINTEREST` on `affiliate_links`, mirrored by `CONTENT_CHANNELS` in the API) — core logic never branches on channel names.
+REASON: Provider/channel-neutral + additive-architecture rule; Phase-00 proves the loop manually before automating.
+ALTERNATIVES CONSIDERED: YouTube, Instagram (rejected for Phase-00 — Owner picked Pinterest).
+STATUS: ACTIVE
+
+DATE: 2026-09-13
+DECISION: Content publishing has a compliance gate: `content_assets.disclosureAdded` must be true before `published` can be true; disclosure cannot be removed while published; `publishedAt` is the manual pin-go-live timestamp set by the Owner.
+REASON: Amazon/FTC affiliate disclosure is a mandatory Content QA item (17_AMAZON_COMPLIANCE.md, SOC-04).
+STATUS: ACTIVE
+
+DATE: 2026-09-13
+DECISION: Dashboard data is served by the API (`GET /dashboard/overview`); the web `/dashboard` page fetches it server-side. Web does not touch the database.
+REASON: Single DB access boundary (API) per architecture; keeps web simple and avoids leaking DB secrets to browsers.
+STATUS: ACTIVE

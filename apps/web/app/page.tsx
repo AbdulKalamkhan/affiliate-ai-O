@@ -7,9 +7,12 @@ export default function Home() {
         revenue/profit records, one content channel, manual publishing.
       </p>
       <ul>
+        <li>
+          <a href="/dashboard">dashboard</a> — clicks, conversions, profit
+        </li>
         <li>affiliate links + click tracker</li>
         <li>revenue_events / profit_records</li>
-        <li>minimal dashboard (next increment)</li>
+        <li>content assets for Pinterest publishing (manual)</li>
       </ul>
     </main>
   );

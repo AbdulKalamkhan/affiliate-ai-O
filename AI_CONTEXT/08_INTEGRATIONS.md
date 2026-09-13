@@ -6,6 +6,13 @@
 - Local model in use (if applicable): NONE — Ollama not running (localhost:11434 closed)
 - Fallback plan if local model insufficient: (none configured yet — optional Gemini/other adapters per 02_ARCHITECTURE.md; AI layer not required for Phase 00 core loop)
 
+## Content channels (publishing)
+| Channel | Status | Notes |
+|---|---|---|
+| Pinterest | ACTIVE — manual publishing only | Owner choice (2026-09-13). Pins are created manually by Owner; wiring in TASK 6 records pin title/description/destination (tagged link), published/publishedAt, and enforces the Amazon disclosure gate. NO Pinterest API — SOC-04 automation is a later phase (TASK 6 scope out). Source recorded as `Channel.PINTEREST` on the tracked link + dashboard "clicks by channel". |
+| YouTube | (not connected) | Later phase |
+| Instagram | (not connected) | Later phase |
+
 ## Affiliate networks
 | Network | Status | Notes |
 |---|---|---|

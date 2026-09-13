@@ -12,6 +12,13 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Content channels are CONFIG values, not business logic: add a value here +
+// front the list in the API config when a new channel is adopted. Core code
+// never branches on channel names (provider/channel-neutral rule).
+enum Channel {
+  PINTEREST
+}
+
 // --- Business / Affiliate, Phase-00 (opportunity list — manual, no scoring yet) ---
 
 model Opportunity {
@@ -32,6 +39,7 @@ model Opportunity {
 model AffiliateLink {
   id             String   @id @default(cuid())
   provider       String // e.g. "amazon-associates" (adapter key — not business logic)
+  channel        Channel  @default(PINTEREST) // target content channel (config value, see enum)
   offer          String? // offer/product identifier from the provider (ASIN for Amazon)
   campaign       String? // campaign label (Phase-00 simplification: campaigns are later-phase entities)
   destination    String
@@ -44,6 +52,7 @@ model AffiliateLink {
   productCurrency String?
   createdAt      DateTime @default(now())
   clicks         AffiliateLinkClick[]
+  contentAssets  ContentAsset[]
   revenueEvents  RevenueEvent[]
 
   @@index([provider, createdAt])
@@ -62,6 +71,27 @@ model AffiliateLinkClick {
 
   @@index([linkId, occurredAt])
   @@map("affiliate_link_clicks")
+}
+
+// Content asset = ONE publishable unit for a content channel (Phase-00: Pinterest
+// pin). destination = the already-tracked affiliate link (Task 5). Publishing is
+// manual by the Owner until SOC-04 API automation (later phase). Amazon/FTC
+// compliance requires disclosureAdded=true before published=true (17_AMAZON_COMPLIANCE).
+model ContentAsset {
+  id             String         @id @default(cuid())
+  title          String // pin title
+  description    String? // pin description (captions often carry the affiliate disclosure)
+  linkId         String
+  link           AffiliateLink  @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  published      Boolean        @default(false)
+  publishedAt    DateTime? // manual publish date — set by Owner when the pin goes live
+  disclosureAdded Boolean       @default(false) // Amazon/FTC affiliate disclosure present
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([linkId])
+  @@index([published])
+  @@map("content_assets")
 }
 
 // Verified revenue event from a network/provider (Affiliate-06).
