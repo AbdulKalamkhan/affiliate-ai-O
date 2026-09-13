@@ -1,0 +1,31 @@
+{
+  "name": "@ai-os/database",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "generate": "prisma generate",
+    "migrate": "prisma migrate dev",
+    "deploy": "prisma migrate deploy",
+    "studio": "prisma studio",
+    "lint": "echo \"lint: nothing to lint in @ai-os/database\" && exit 0",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "echo \"test: no tests configured for @ai-os/database\" && exit 0"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.5.0"
+  },
+  "devDependencies": {
+    "prisma": "^6.5.0",
+    "typescript": "^5.7.0"
+  }
+}

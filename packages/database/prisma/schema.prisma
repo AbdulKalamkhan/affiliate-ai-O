@@ -1,0 +1,85 @@
+// AI_OS — Phase-00 Money-First MVP schema.
+// Additive-only. Business/Affiliate subset from AI_OS_Agent_Documentation.md §10.
+// Provider/network-neutral: `provider` is a string key; provider APIs are never
+// hard-coded into core logic (non-negotiable #9).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --- Affiliate Engine, Phase-00 (Affiliate-05: link generator + click tracking) ---
+
+model AffiliateLink {
+  id             String   @id @default(cuid())
+  provider       String // e.g. "amazon-associates" (adapter key — not business logic)
+  offer          String? // offer/product identifier from the provider
+  campaign       String? // campaign label (Phase-00 simplification: campaigns are later-phase entities)
+  destination    String
+  trackingParams Json?
+  createdAt      DateTime @default(now())
+  clicks         AffiliateLinkClick[]
+  revenueEvents  RevenueEvent[]
+
+  @@index([provider, createdAt])
+  @@map("affiliate_links")
+}
+
+// Privacy-aware click tracker — raw IPs are not stored by default.
+model AffiliateLinkClick {
+  id         String         @id @default(cuid())
+  linkId     String
+  link       AffiliateLink  @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  country    String?
+  referrer   String?
+  userAgent  String?
+  occurredAt DateTime       @default(now())
+
+  @@index([linkId, occurredAt])
+  @@map("affiliate_link_clicks")
+}
+
+// Verified revenue event from a network/provider (Affiliate-06).
+// Only events with provider evidence and status reconciled produce profit records.
+model RevenueEvent {
+  id           String          @id @default(cuid())
+  provider     String
+  sourceId     String? // provider's own event/idempotency id for reconciliation
+  eventType    String          @default("sale")
+  value        Decimal         @db.Decimal(12, 2)
+  currency     String          @default("INR")
+  linkId       String?
+  link         AffiliateLink?  @relation(fields: [linkId], references: [id])
+  status       String          @default("pending") // pending -> reconciled | rejected
+  occurredAt   DateTime        @default(now())
+  createdAt    DateTime        @default(now())
+  profitRecord ProfitRecord?
+
+  @@unique([provider, sourceId])
+  @@index([provider, occurredAt])
+  @@map("revenue_events")
+}
+
+// Verified profit record (AN-02): netProfit = grossAmount - feeAmount - costAmount.
+// Never treat gross sales as profit.
+model ProfitRecord {
+  id            String        @id @default(cuid())
+  sourceType    String        @default("affiliate") // "affiliate" now; "seller" later — never mixing estimates with actuals
+  source        String        // provider/evidence reference
+  grossAmount   Decimal       @db.Decimal(12, 2)
+  feeAmount     Decimal       @db.Decimal(12, 2)
+  costAmount    Decimal       @db.Decimal(12, 2)
+  netProfit     Decimal       @db.Decimal(12, 2)
+  currency      String        @default("INR")
+  revenueEventId String?       @unique
+  revenueEvent  RevenueEvent? @relation(fields: [revenueEventId], references: [id])
+  recordedAt    DateTime      @default(now())
+  status        String        @default("recorded")
+
+  @@index([sourceType, recordedAt])
+  @@map("profit_records")
+}
