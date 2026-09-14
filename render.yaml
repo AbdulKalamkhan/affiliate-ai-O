@@ -1,0 +1,24 @@
+# Render Blueprint — Phase-00: "just enough API" so the click-tracking redirect
+# (GET /affiliate-links/:id/click) is publicly reachable for real Pinterest traffic.
+# Free web service (spins down after 15 min idle, ~1 min cold start).
+# DATABASE_URL is NOT in this file — set it as a secret service variable in the Render
+# dashboard (Neon serverless Postgres recommended). Migrations run at startup via
+# `prisma migrate deploy` (idempotent).
+services:
+  - type: web
+    name: ai-os-api
+    plan: free
+    buildCommand: >-
+      npm ci &&
+      npx prisma generate --schema packages/database/prisma/schema.prisma &&
+      npx turbo run build --filter=@ai-os/api...
+    startCommand: >-
+      npx prisma migrate deploy --schema packages/database/prisma/schema.prisma &&
+      node apps/api/dist/main.js
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: ASSOCIATE_TAG
+        value: zorajewellery-21
+      - key: DATABASE_URL
+        sync: false
