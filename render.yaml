@@ -6,6 +6,7 @@
 # `prisma migrate deploy` (idempotent).
 services:
   - type: web
+    runtime: node
     name: ai-os-api
     plan: free
     buildCommand: >-
