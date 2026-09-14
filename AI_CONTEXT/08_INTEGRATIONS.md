@@ -48,5 +48,13 @@
 | n8n | (not running) | Phase 05+; see 02_ARCHITECTURE.md |
 | Ollama | (not set up) | Port 11434 closed; see AI providers above |
 
+## Production hosting (Phase-00 public click-tracker)
+| Component | Status | Notes |
+|---|---|---|
+| Render web service `ai-os-api` (free, `runtime: node`) | LIVE | Public URL `https://ai-os-api-1eck.onrender.com` (verified 2026-09-14; /health HTTP 200). Blueprint `render.yaml` (build: prisma generate + turbo build filter api; start: prisma migrate deploy + node apps/api/dist/main.js). `NODE_VERSION=24`, `ASSOCIATE_TAG=zorajewellery-21` set. |
+| Neon PostgreSQL (production DB) | LIVE | `DATABASE_URL` set as Render secret (`sync:false`), value NEVER stored in repo/memory/chat. Prisma migrations auto-run on boot via `prisma migrate deploy`. Connectivity proven by production writes (link create 201, click row create 200) — no `_prisma_migrations` failure observed. |
+| Migration status | 3 applied | Local `20260913132220_init`, `20260913142055_add_content_assets_and_channel`; production startup runs `migrate deploy` (idempotent). |
+| Free-tier limits | Risk | Spins down after 15 min idle (~1 min cold start); 750 instance-hrs/mo. Fine for Phase-00 gate. |
+
 ## Rule
 Never store actual secrets/keys in this file or any AI_CONTEXT file — record connection *status* only. Actual credentials go in `.env` (never committed) or a secrets manager.
