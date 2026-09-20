@@ -60,6 +60,29 @@ describe("AffiliateLinkService", () => {
     );
   });
 
+  it("rejects non-amazon host urls (open-redirect guard)", async () => {
+    const { db } = makeFakeDb();
+    const service = new AffiliateLinkService(db, manualProvider());
+    await expect(service.createLink({ url: "https://evil.example/dp/B08N5WRWNW" })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it("rejects a client-supplied tag that differs from the server tag", async () => {
+    const { db } = makeFakeDb();
+    const service = new AffiliateLinkService(db, manualProvider());
+    await expect(
+      service.createLink({ url: "https://www.amazon.in/dp/B08N5WRWNW", tag: "evil-other-21" }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("accepts an explicit matching tag", async () => {
+    const { db } = makeFakeDb();
+    const service = new AffiliateLinkService(db, manualProvider());
+    const link = await service.createLink({ url: "https://www.amazon.in/dp/B08N5WRWNW", tag: "zorajewellery-21" });
+    expect(link.destination).toContain("tag=zorajewellery-21");
+  });
+
   it("passes the extracted ASIN to the product-data provider", async () => {
     const { db } = makeFakeDb();
     const seen: ProductDataFetchInput[] = [];

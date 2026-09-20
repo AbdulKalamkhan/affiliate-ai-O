@@ -21,5 +21,7 @@ services:
         value: "24"
       - key: ASSOCIATE_TAG
         value: zorajewellery-21
+      - key: API_KEY
+        sync: false
       - key: DATABASE_URL
         sync: false

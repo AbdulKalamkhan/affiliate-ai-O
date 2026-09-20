@@ -6,6 +6,7 @@ export const metadata: Metadata = {
 };
 
 const API_BASE = process.env.API_BASE_URL ?? "http://localhost:3001";
+const API_KEY = process.env.API_KEY ?? "";
 
 export const dynamic = "force-dynamic";
 
@@ -70,7 +71,9 @@ interface OverviewData {
 
 async function getOverview(): Promise<OverviewData | null> {
   try {
-    const res = await fetch(`${API_BASE}/dashboard/overview`, { cache: "no-store" });
+    const headers: Record<string, string> = {};
+    if (API_KEY) headers.Authorization = `Bearer ${API_KEY}`;
+    const res = await fetch(`${API_BASE}/dashboard/overview`, { cache: "no-store", headers });
     if (!res.ok) return null;
     return (await res.json()) as OverviewData;
   } catch {

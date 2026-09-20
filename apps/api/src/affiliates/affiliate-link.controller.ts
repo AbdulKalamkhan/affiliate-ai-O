@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Post, Req, Res } from "@nestjs/common";
 import { Request, Response } from "express";
 import { AffiliateLinkService, CreateLinkInput } from "./affiliate-link.service";
+import { Public } from "../security/public.decorator";
 
 @Controller("affiliate-links")
 export class AffiliateLinkController {
@@ -16,6 +17,7 @@ export class AffiliateLinkController {
     return this.service.list();
   }
 
+  @Public()
   @Get(":id/click")
   async click(@Param("id") id: string, @Req() req: Request, @Res() res: Response) {
     const destination = await this.service.recordClick(id, {

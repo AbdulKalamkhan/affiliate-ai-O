@@ -3,7 +3,7 @@ import { Inject } from "@nestjs/common";
 import { prisma } from "@ai-os/database";
 import type { DbClient } from "../db/db-client";
 import { DB_CLIENT } from "../db/tokens";
-import { buildTaggedUrl, extractAsin } from "./url/tag.util";
+import { buildTaggedUrl, extractAsin, isAllowedAmazonHost } from "./url/tag.util";
 import { MANUAL_PRODUCT_PROVIDER, PRODUCT_DATA_PROVIDER, ProductDataProvider } from "./product-data/product-data.provider";
 import { CONTENT_CHANNELS, DEFAULT_CONTENT_CHANNEL, ContentChannel } from "../content-assets/channels.config";
 
@@ -39,13 +39,16 @@ export class AffiliateLinkService {
     if (typeof input.url !== "string" || !input.url.trim()) {
       throw new BadRequestException("url is required");
     }
-    const tag = (input.tag ?? process.env.ASSOCIATE_TAG ?? DEFAULT_ASSOCIATE_TAG).trim();
-    if (!tag) {
+    const serverTag = (process.env.ASSOCIATE_TAG ?? DEFAULT_ASSOCIATE_TAG).trim();
+    if (!serverTag) {
       throw new BadRequestException("associate tag is required");
+    }
+    if (input.tag?.trim() && input.tag.trim() !== serverTag) {
+      throw new BadRequestException(`associate tag is server-managed; use "${serverTag}" or omit it`);
     }
     let destination: string;
     try {
-      destination = buildTaggedUrl(input.url.trim(), tag);
+      destination = buildTaggedUrl(input.url.trim(), serverTag);
     } catch (err) {
       throw new BadRequestException(err instanceof Error ? err.message : "invalid url");
     }
@@ -118,6 +121,9 @@ export class AffiliateLinkService {
     }
     if (destination.protocol !== "https:") {
       throw new BadRequestException("stored destination is not https");
+    }
+    if (!isAllowedAmazonHost(destination.hostname)) {
+      throw new BadRequestException("stored destination host is not an amazon domain");
     }
     await this.client.affiliateLinkClick.create({
       data: {

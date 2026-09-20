@@ -19,6 +19,16 @@ describe("buildTaggedUrl", () => {
     expect(() => buildTaggedUrl("http://www.amazon.in/dp/B0XYZ", "t")).toThrow("https");
   });
 
+  it("rejects non-amazon hosts (open-redirect guard)", () => {
+    expect(() => buildTaggedUrl("https://evil.example/dp/B0XYZ", "t")).toThrow("amazon domain");
+    expect(() => buildTaggedUrl("https://amazon.in.evil.example/dp/B0XYZ", "t")).toThrow("amazon domain");
+  });
+
+  it("allows subdomains of amazon domains", () => {
+    const out = buildTaggedUrl("https://smile.amazon.in/dp/B0XYZ", "t");
+    expect(out).toContain("tag=t");
+  });
+
   it("rejects invalid urls", () => {
     expect(() => buildTaggedUrl("not a url", "t")).toThrow("valid URL");
   });

@@ -1,4 +1,7 @@
-import { Controller, Get } from "@nestjs/common";
+import { Controller, Get, Inject } from "@nestjs/common";
+import { prisma } from "@ai-os/database";
+import { DB_CLIENT } from "../db/tokens";
+import { Public } from "../security/public.decorator";
 
 export interface HealthPayload {
   status: string;
@@ -7,14 +10,25 @@ export interface HealthPayload {
   timestamp: string;
 }
 
+type DbProbe = { $queryRawUnsafe: (query: string) => Promise<unknown> };
+
 @Controller("health")
 export class HealthController {
+  constructor(@Inject(DB_CLIENT) private readonly client: DbProbe = prisma as DbProbe) {}
+
+  @Public()
   @Get()
-  getHealth(): HealthPayload {
+  async getHealth(): Promise<HealthPayload> {
+    let database = "ok";
+    try {
+      await this.client.$queryRawUnsafe("SELECT 1");
+    } catch {
+      database = "error";
+    }
     return {
-      status: "ok",
+      status: database === "ok" ? "ok" : "degraded",
       service: "@ai-os/api",
-      database: "not-checked",
+      database,
       timestamp: new Date().toISOString(),
     };
   }
