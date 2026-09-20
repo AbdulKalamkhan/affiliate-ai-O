@@ -7,7 +7,7 @@
 | Current Phase | PHASE-00 (7 of 8 task items done; PRODUCTION technical gate PASSED 2026-09-14; business gate blocked on real conversion + verified commission) |
 | Current Build Status | Turborepo monorepo green: api 42 jest tests PASS, web builds + dashboard SSR verified, DB migrated (3 migrations). PRODUCTION api live on Render+Neon (https://ai-os-api-1eck.onrender.com) — /health 200, full affiliate/click/dashboard loop verified |
 | Current Opportunities | List ready (table + CRUD); 0 rows in DB (no opportunity rows created). Campaign #2 research DONE 2026-09-15 (6 candidates scored, TOP 5; see 10_CHANGE_HISTORY), product APPROVED by Owner 2026-09-16 |
-| Active Campaigns | #1 GIVA hoop earrings (B09DGJR1Z7) — link cmu1m77qy0000ba1yzz4thfnu + asset cmu1m9upy0002ba1ya9j1lmls DRAFTED, disclosure added, NOT published (awaiting APPROVE PUBLICATION). #2 GIVA Toe Rings (B09DGKCSH8) — link cmu4htr2r0000cn1gjsuz3kvf + asset cmu4hufm60002cn1gk61ditoz DRAFTED, disclosure added, NOT published |
+| Active Campaigns | #1 GIVA hoop earrings (B09DGJR1Z7) — link cmu1m77qy0000ba1yzz4thfnu + asset cmu1m9upy0002ba1ya9j1lmls DRAFTED, disclosure added, NOT published (awaiting APPROVE PUBLICATION). #2 GIVA Toe Rings (B09DGKCSH8) — link cmu4htr2r0000cn1gjsuz3kvf + asset cmu4hufm60002cn1gk61ditoz DRAFTED, disclosure added + real disclosure sentence present (fixed 2026-09-20), NOT published |
 | Content Channel | Pinterest — manual publishing wired (TASK 6); no API |
 | Pending Approvals | 1) Publish Campaign #1 pin externally (APPROVE PUBLICATION awaited). 2) Publish Campaign #2 pin externally (APPROVE PUBLICATION awaited — NOT YET SENT). Commission % UNVERIFIED for both |
 | Current Revenue | ₹0 |
