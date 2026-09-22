@@ -59,3 +59,24 @@ DATE: 2026-09-13
 DECISION: Dashboard data is served by the API (`GET /dashboard/overview`); the web `/dashboard` page fetches it server-side. Web does not touch the database.
 REASON: Single DB access boundary (API) per architecture; keeps web simple and avoids leaking DB secrets to browsers.
 STATUS: ACTIVE
+
+DATE: 2026-09-22
+DECISION: Retire old inactive campaigns #1 (GIVA hoop earrings B09DGJR1Z7) and #2 (GIVA Toe Rings B09DGKCSH8). Both production drafts (link + content asset each) deleted via Owner-authenticated production session and verified by read-back (links 404, assets cascade-404, dashboard all-zero). Start a fresh campaign cycle; do NOT reuse their products, ASINs, links, assets, or Pin IDs.
+REASON: Owner requested a fresh campaign cycle because previous Pinterest Pin verification was blocked (no verified per-pin evidence) and the drafts carried zero real traffic/history.
+ALTERNATIVES CONSIDERED: Keep drafts as inactive/archived (no such lifecycle field exists in the schema — only DELETE is supported); agent-side cleanup (blocked — no API_KEY in agent session).
+STATUS: ACTIVE
+
+DATE: 2026-09-22
+DECISION: Campaign #3 (`dhruvs-nazariya-anklet-c3`, DHRUVS COLLECTION 925 Sterling Silver Nazariya Anklet, ASIN B08BG1HC7R) is retained as the current active campaign. Reuse the verified existing affiliate link `cmucz87hk0000ah1gi1dnep0r` and content asset `cmuczfp6y0002ah1g7fjqmuxd` — do NOT create duplicate link/asset records.
+REASON: Creation produced exactly one link + one asset (disclosureAdded=true, published=false). Following the HTTP 500 contract-mismatch recovery, retrying blindly would duplicate side effects; the confirmed existing records are the source of truth.
+STATUS: ACTIVE
+
+DATE: 2026-09-22
+DECISION: Keep ContentAsset `published=false` for Campaign #3 until separate explicit Owner PUBLICATION approval. Pinterest publication remains a manual Owner-controlled action because Pinterest API integration is unavailable (SOC-04 later phase).
+REASON: Compliance gate requires explicit go-live; no API path exists for agent-driven publication; zero clicks/traffic so far.
+STATUS: ACTIVE
+
+DATE: 2026-09-22
+DECISION: Do not treat the recorded ₹1,424 price as permanently current (point-in-time listing observation). Do not mark Phase-00 as passed until a real click → conversion → commission is verified.
+REASON: Prices fluctuate and commission %/outcome remain UNKNOWN without provider/network evidence.
+STATUS: ACTIVE
