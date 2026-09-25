@@ -163,4 +163,45 @@ describe("RevenueService", () => {
     const service = new RevenueService(db);
     await expect(service.reject("nope")).rejects.toBeInstanceOf(NotFoundException);
   });
+
+  it("raises a concentration risk alert when one provider exceeds 90% of verified revenue", async () => {
+    const { db } = makeFakeDb();
+    const service = new RevenueService(db);
+    const big = await service.record({ provider: "amazon-associates", sourceId: "A1", value: 100 });
+    await service.reconcile(big.id, { grossAmount: 100, feeAmount: 0, costAmount: 0 });
+    const small = await service.record({ provider: "ebay-afp", sourceId: "B1", value: 5 });
+    await service.reconcile(small.id, { grossAmount: 5, feeAmount: 0, costAmount: 0 });
+
+    const c = await service.concentration();
+    expect(c.totalRevenue).toBe(105);
+    expect(c.providerCount).toBe(2);
+    const amazon = c.providers.find((p) => p.provider === "amazon-associates")!;
+    expect(amazon.sharePct).toBe(95.24); // ~100/105
+    expect(amazon.riskAlert).toBe(true);
+    expect(c.riskAlerts.map((p) => p.provider)).toEqual(["amazon-associates"]);
+  });
+
+  it("does not count pending or rejected events toward concentration", async () => {
+    const { db } = makeFakeDb();
+    const service = new RevenueService(db);
+    const verified = await service.record({ provider: "amazon-associates", sourceId: "A1", value: 10 });
+    await service.reconcile(verified.id, { grossAmount: 10, feeAmount: 0, costAmount: 0 });
+    await service.record({ provider: "pending-network", sourceId: "P1", value: 1000 });
+    const rejected = await service.record({ provider: "rejected-network", sourceId: "R1", value: 900 });
+    await service.reject(rejected.id);
+
+    const c = await service.concentration();
+    expect(c.totalRevenue).toBe(10);
+    expect(c.providerCount).toBe(1);
+    expect(c.providers[0].sharePct).toBe(100);
+  });
+
+  it("returns an empty concentration when no verified revenue exists", async () => {
+    const { db } = makeFakeDb();
+    const service = new RevenueService(db);
+    const c = await service.concentration();
+    expect(c.totalRevenue).toBe(0);
+    expect(c.providerCount).toBe(0);
+    expect(c.riskAlerts).toEqual([]);
+  });
 });

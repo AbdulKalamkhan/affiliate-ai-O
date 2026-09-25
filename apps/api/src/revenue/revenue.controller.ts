@@ -15,6 +15,11 @@ export class RevenueController {
     return this.service.list();
   }
 
+  @Get("concentration")
+  concentration() {
+    return this.service.concentration();
+  }
+
   @Get(":id")
   get(@Param("id") id: string) {
     return this.service.get(id);

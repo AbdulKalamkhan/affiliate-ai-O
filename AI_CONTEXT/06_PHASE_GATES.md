@@ -102,3 +102,19 @@ Final gate: IN PROGRESS â€” Phase-02 evidence-backed ranked opportunities core C
 ---
 
 (Add a new dated entry each time a phase report is generated. Do not delete old entries â€” this is the audit trail.)
+
+---
+
+**Gate report — 2026-09-25 (Phase-03 slice: revenue concentration KPI, Owner MAXIMUM-AUTONOMY directive)**
+PHASE: 03 — Money/Affiliate Engine (slice)
+Objective: financial evaluation and actual outcome tracking are trustworthy (revenue concentration KPI per Affiliate-07)
+Repository evidence: apps/api/src/revenue/revenue.service.ts (concentration()), revenue.controller.ts (GET /revenue-events/concentration declared before ':id'), revenue.service.spec.ts (+3)
+Changes made: added RevenueService.concentration() — sums ONLY reconciled (verified) revenue events grouped by provider, computes per-provider share %, raises riskAlert when a single provider/network exceeds 90% of verified revenue (threshold 0.9 constant), exposes totalRevenue/providerCount/riskAlerts for the CEO report. Read-only, deterministic, no schema/migration change. Second-provider adapter deliberately NOT added per Affiliate-07 ('add the second provider only after the Money-First MVP gate').
+Tests: PASS (109/109, 11 suites; +3)   Typecheck: PASS (4/4)   Lint: PASS (3/3)
+Build: PASS (3/3/9)   Database: PASS (prisma validate; no migration needed; production /health 200 database=ok)
+Security: PASS (new route protected by APP_GUARD by default — no @Public; read-only aggregation)
+Amazon compliance check: N/A engineering. No conversion/commission evidence supplied — nothing recorded, NOTHING fabricated. Phase-00 unchanged (BLOCKED, 4 clicks, 0 conversions, revenue Rs0, profit Rs0).
+Regression: PASS (all prior 106 tests still green)
+Memory updated: YES (03, 05, 06, 10, 11, MASTER)
+Evidence recorded: YES (tests + this report; Phase-00 state untouched)
+Final gate: IN PROGRESS — Phase-03 concentration KPI COMPLETE + TESTED (slice gate: evaluation of revenue concentration trustworthy). Remaining Phase-03 (provider adapters for a second network, offers/campaign entities, revenue concentration dashboard widget) deferred — second-provider work is EXPLICITLY gated behind the Money-First MVP gate (Affiliate-07). Phase-00 REMAINS BLOCKED on external Amazon Associates evidence.

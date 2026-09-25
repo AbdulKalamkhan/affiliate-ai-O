@@ -134,3 +134,11 @@ ACTUAL: Implemented the smallest safe slice that satisfies the Phase-02 gate ('r
 EVIDENCE QUALITY: FACT (executed gates; deterministic-scoring behavioral assertions)
 LESSON 1: A phase gate can be met with a smallest-truthful core (evidence + deterministic scoring + ranking) while documented tables (opportunity_signals/opportunity_scores/trend_signals) and the financial-estimate layer (Affiliate-04) are legitimately deferred as phase follow-ons — do not fabricate trend data you cannot source. LESSON 2: Persisting the evidence QUALITY class per claim is the enforcement mechanism for 'evidence-backed' ranking: unknown-quality input is scored at weight zero. LESSON 3: Under maximum-autonomy, keep the same evidence standards — Phase-02 engineering proceeds but Phase-00 business gate stays BLOCKED until real Amazon conversion evidence exists.
 REUSABLE: YES
+
+DATE: 2026-09-25
+CONTEXT: TWELFTH LOOP (Owner MAXIMUM-AUTONOMY directive) — Phase-03 revenue concentration KPI slice
+EXPECTED: Continue through phases; Phase-03 is Money/Affiliate Engine
+ACTUAL: Implemented the Phase-03 slice that is safe without a second provider: revenue concentration KPI (Affiliate-07). RevenueService.concentration() aggregates ONLY reconciled (verified) revenue events by provider, computes share %, and raises a riskAlert when one network exceeds 90% of verified revenue. Route GET /revenue-events/concentration (static path declared before ':id'). 3 new tests (single-provider 95.24% triggers alert; pending/rejected excluded; empty state). Tests 109/109; typecheck/lint/build/prisma validate PASS. NO schema/migration change. A second-provider adapter was deliberately NOT added — Affiliate-07 gates it behind the Money-First MVP gate. Phase-00 unchanged: BLOCKED.
+EVIDENCE QUALITY: FACT (executed gates; concentration math assertions)
+LESSON 1: When a phase gate forbids adding external integrations before evidence, find the slice that satisfies the KPI/deliverable with existing data (here: concentration of VERIFIED revenue) rather than stubbing a fake provider. LESSON 2: Money-integrity rule applies to derived KPIs too — concentration must exclude pending/rejected events or the measure overstates diversification. LESSON 3: Express route order matters — declare static routes ('concentration') before parameterized (':id') routes.
+REUSABLE: YES

@@ -140,4 +140,44 @@ export class RevenueService {
     }
     return this.client.revenueEvent.update({ where: { id }, data: { status: "rejected" } });
   }
+
+  /**
+   * Revenue concentration KPI (Affiliate-07). Only RECONCILED (verified) events
+   * count toward revenue — pending/rejected never inflate the measure. If a single
+   * provider/network exceeds 90% of verified revenue a risk alert is raised for the
+   * CEO report. Network adapters stay independent; no second provider is introduced.
+   */
+  async concentration() {
+    const events = await this.client.revenueEvent.findMany({ where: { status: "reconciled" } });
+    const byProvider = new Map<string, number>();
+    const currencies = new Map<string, string>();
+    let total = 0;
+    for (const event of events) {
+      const value = Number(event.value);
+      total += value;
+      byProvider.set(event.provider, (byProvider.get(event.provider) ?? 0) + value);
+      currencies.set(event.provider, event.currency || DEFAULT_CURRENCY);
+    }
+
+    const CONCENTRATION_THRESHOLD = 0.9;
+    const providers = [...byProvider.entries()].map(([provider, amount]) => {
+      const share = total > 0 ? amount / total : 0;
+      return {
+        provider,
+        amount: Math.round(amount * 100) / 100,
+        currency: currencies.get(provider) ?? DEFAULT_CURRENCY,
+        sharePct: Math.round(share * 10000) / 100,
+        riskAlert: share > CONCENTRATION_THRESHOLD,
+      };
+    });
+
+    return {
+      totalRevenue: Math.round(total * 100) / 100,
+      currency: providers[0]?.currency ?? DEFAULT_CURRENCY,
+      providerCount: providers.length,
+      concentrationThresholdPct: CONCENTRATION_THRESHOLD * 100,
+      riskAlerts: providers.filter((p) => p.riskAlert),
+      providers,
+    };
+  }
 }

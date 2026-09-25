@@ -3,7 +3,7 @@
 **This is the most important file to keep current. Update it after every session.**
 
 ## Current phase
-`PHASE-00 — Money-First MVP` (in progress — scaffold, DB, opportunities, links+click tracker, Pinterest publishing wiring + dashboard done; Campaign #3 is LIVE with real clicks; only the real-conversion → verified-commission gate remains, blocked on external Amazon Associates evidence). PHASE-01 (Foundation & AI CEO Core) Gate A — "safe Owner command → structured auditable plan without external execution" — IMPLEMENTED + TESTED 2026-09-25 under OWNER EXPLICIT OVERRIDE (started before Phase-00 passes; override does NOT change Phase-00 evidence rules). PHASE-02 (Opportunity Intelligence) Gate — "repeatable evidence-backed ranked opportunities" — CORE IMPLEMENTED + TESTED 2026-09-25 under OWNER MAXIMUM-AUTONOMY directive (opportunity_evidence + deterministic versioned scoring/ranking).
+`PHASE-00 — Money-First MVP` (in progress — scaffold, DB, opportunities, links+click tracker, Pinterest publishing wiring + dashboard done; Campaign #3 is LIVE with real clicks; only the real-conversion → verified-commission gate remains, blocked on external Amazon Associates evidence). PHASE-01 (Foundation & AI CEO Core) Gate A — "safe Owner command → structured auditable plan without external execution" — IMPLEMENTED + TESTED 2026-09-25 under OWNER EXPLICIT OVERRIDE (started before Phase-00 passes; override does NOT change Phase-00 evidence rules). PHASE-02 (Opportunity Intelligence) Gate — "repeatable evidence-backed ranked opportunities" — CORE IMPLEMENTED + TESTED 2026-09-25 under OWNER MAXIMUM-AUTONOMY directive (opportunity_evidence + deterministic versioned scoring/ranking). PHASE-03 (Money/Affiliate Engine) slice — revenue concentration KPI (Affiliate-07) IMPLEMENTED + TESTED 2026-09-25 (GET /revenue-events/concentration; second-provider adapter deferred behind Money-First MVP gate).
 
 ## Repository state (verified, 2026-09-13)
 - Repository initialized: YES (git, branch main, at D:\Affiliate-AI-OS)
@@ -17,7 +17,7 @@
 - Typecheck: PASS — all 3 workspaces (@ai-os/web, @ai-os/api, @ai-os/database)
 - Lint: PASS — all 3 workspaces
 - Build: PASS — nest build + next build (production)
-- Tests: PASS — @ai-os/api jest: 11 suites / 106 tests (2026-09-25: 100 at loop-10 + 6 loop-11 Phase-02 opportunity-intelligence — evidence validation, deterministic scoring/ranking, UNKNOWN-zero rule; fake-db.ts supports count/aggregate/_count/orderBy/take/include incl boss relations + capturedAt default mirror); database/web: no tests configured
+- Tests: PASS — @ai-os/api jest: 11 suites / 109 tests (2026-09-25: 106 at loop-11 + 3 loop-12 Phase-03 revenue-concentration KPI — single-provider >90% riskAlert, pending/rejected exclusion, empty state; fake-db.ts supports count/aggregate/_count/orderBy/take/include incl boss relations + capturedAt default mirror); database/web: no tests configured
 - DB connectivity: PASS — migrations `20260913132220_init` + `20260913135814_add_opportunities_and_product_fields` + `20260913142055_add_content_assets_and_channel` + `20260925123000_add_boss_core` + `20260925130000_add_opportunity_evidence`; \dt shows affiliate_links, affiliate_link_clicks, content_assets, opportunities, opportunity_evidence, revenue_events, profit_records, boss_commands, boss_plans, boss_tasks, boss_actions, boss_audit_logs, _prisma_migrations
 
 ## Phase 00 checklist (target: 1-2 weeks)
