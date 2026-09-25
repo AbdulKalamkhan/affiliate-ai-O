@@ -142,3 +142,11 @@ ACTUAL: Implemented the Phase-03 slice that is safe without a second provider: r
 EVIDENCE QUALITY: FACT (executed gates; concentration math assertions)
 LESSON 1: When a phase gate forbids adding external integrations before evidence, find the slice that satisfies the KPI/deliverable with existing data (here: concentration of VERIFIED revenue) rather than stubbing a fake provider. LESSON 2: Money-integrity rule applies to derived KPIs too — concentration must exclude pending/rejected events or the measure overstates diversification. LESSON 3: Express route order matters — declare static routes ('concentration') before parameterized (':id') routes.
 REUSABLE: YES
+
+DATE: 2026-09-25
+CONTEXT: THIRTEENTH LOOP (Owner MAXIMUM-AUTONOMY directive) — Phase-04 Content QA rules engine slice
+EXPECTED: Continue through phases; Phase-04 is Content Factory
+ACTUAL: Implemented the Phase-04 slice that is fully deterministic and read-only: a Content QA rules engine (content-qa.rules.ts) that evaluates BOTH mandated gates over a content asset — network-compliance (disclosure declared flag, disclosure sentence present in copy, destination must be https amazon.in/com, no misleading price/availability/urgency claims, no fake-review language) and content-quality (title 3..100, meaningful description on published assets, near-duplicate sibling detection). Endpoint GET /content-qa/assets/:id returns per-check PASS/FAIL + publishReady verdict. 7 tests incl a hidden-gap case: asset flagged disclosureAdded but copy has no disclosure sentence ? fails network gate despite the flag. Tests 116/116; typecheck/lint/build/prisma validate PASS. NO schema change; publish flow untouched (read-only enforcement). Phase-00 unchanged: BLOCKED.
+EVIDENCE QUALITY: FACT (executed gates; rules-engine behavioral assertions)
+LESSON 1: Compliance gates must verify CONTENT (sentence present), not just a boolean flag — the disclosureAdded flag alone is not evidence the disclosure exists (loop-8 lesson restated at QA level). LESSON 2: Build QA as a pure deterministic engine (no I/O) so verdicts are testable and repeatable, and keep the enforcement/wiring (QA-01 approval gate) separate from the rule evaluation. LESSON 3: Under max-autonomy keep publish-flow changes conservative — read-only QA now, enforcement once live assets + approval gate exist.
+REUSABLE: YES

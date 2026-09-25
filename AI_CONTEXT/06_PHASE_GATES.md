@@ -118,3 +118,19 @@ Regression: PASS (all prior 106 tests still green)
 Memory updated: YES (03, 05, 06, 10, 11, MASTER)
 Evidence recorded: YES (tests + this report; Phase-00 state untouched)
 Final gate: IN PROGRESS — Phase-03 concentration KPI COMPLETE + TESTED (slice gate: evaluation of revenue concentration trustworthy). Remaining Phase-03 (provider adapters for a second network, offers/campaign entities, revenue concentration dashboard widget) deferred — second-provider work is EXPLICITLY gated behind the Money-First MVP gate (Affiliate-07). Phase-00 REMAINS BLOCKED on external Amazon Associates evidence.
+
+---
+
+**Gate report — 2026-09-25 (Phase-04 slice: Content QA rules engine, Owner MAXIMUM-AUTONOMY directive)**
+PHASE: 04 — Content Factory (slice)
+Objective: campaign assets reach publish-ready state only after both QA gates pass — enforce via a deterministic rules engine (17_AMAZON_COMPLIANCE: 'Content QA agent must call this rules engine before any publish action reaches the Approval Gate')
+Repository evidence: apps/api/src/content-qa/ (content-qa.rules.ts pure engine, content-qa.service.ts evaluate(), controller GET /content-qa/assets/:id, module wired), content-qa.service.spec.ts (+7)
+Changes made: added deterministic Content QA engine with network-compliance checks (disclosure declared, disclosure sentence present in copy, destination https amazon.in/com, no misleading price/availability/urgency claims, no fake-review language) and content-quality checks (title 3..100, description on published assets, near-duplicate sibling detection). Verdict summary drives publish-ready decision. READ-ONLY: the existing publish flow is unchanged; enforcement wiring to QA-01 approval gate is a later phase. No schema/migration change.
+Tests: PASS (116/116, 12 suites; +7)   Typecheck: PASS (4/4)   Lint: PASS (3/3)
+Build: PASS (3/3/9)   Database: PASS (prisma validate; no migration needed)
+Security: PASS (new route protected by APP_GUARD by default — no @Public; pure read)
+Amazon compliance check: PASS for this slice — rules codify disclosure/misleading-claims/fake-reviews per 17_AMAZON_COMPLIANCE. Real conversion/commission still NOT verified — nothing recorded, nothing fabricated. Phase-00 unchanged (BLOCKED, 4 clicks, 0 conversions, revenue Rs0, profit Rs0).
+Regression: PASS (all prior 109 tests still green)
+Memory updated: YES (03, 05, 06, 10, 11, MASTER)
+Evidence recorded: YES (tests + this report)
+Final gate: IN PROGRESS — Phase-04 QA slice COMPLETE + TESTED (deterministic rules engine for both QA gates ready to gate publish). Remaining Phase-04 (content generation, image workflows, fingerprints as stored assets, QA-01 approval-gate enforcement) deferred — enforcement becomes meaningful with live assets and the Approval Gate. Phase-00 REMAINS BLOCKED on external Amazon Associates evidence.
