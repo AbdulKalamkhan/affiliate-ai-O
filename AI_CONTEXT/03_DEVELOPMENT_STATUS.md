@@ -17,7 +17,7 @@
 - Typecheck: PASS — all 3 workspaces (@ai-os/web, @ai-os/api, @ai-os/database)
 - Lint: PASS — all 3 workspaces
 - Build: PASS — nest build + next build (production)
-- Tests: PASS — @ai-os/api jest: 8 suites / 61 tests (re-verified 2026-09-25 after dashboard.service.spec.ts added, +5 tests covering the previously untested DashboardService; fake-db.ts upgraded with count/aggregate/_count/orderBy/take/include support); database/web: no tests configured
+- Tests: PASS — @ai-os/api jest: 8 suites / 65 tests (verified 2026-09-25: 61 base + dashboard.service.spec.ts 5 + affiliate-link recordClick defense-in-depth 3 + rate-limit bound 1; fake-db.ts upgraded with count/aggregate/_count/orderBy/take/include support); database/web: no tests configured
 - DB connectivity: PASS — migrations `20260913132220_init` + `20260913135814_add_opportunities_and_product_fields` + `20260913142055_add_content_assets_and_channel`; \dt shows affiliate_links, affiliate_link_clicks, content_assets, opportunities, revenue_events, profit_records, _prisma_migrations
 
 ## Phase 00 checklist (target: 1-2 weeks)
@@ -47,6 +47,7 @@
 - PA-API BLOCKED: Amazon Associates account `zorajewellery-21` is active for SiteStripe/manual tagging, but PA-API requires 10 qualifying sales in the trailing 30 days (account has 0). Do NOT attempt PA-API integration. Current method: manual tag appending (no PA-API call).
 - Phase-00 GATE not yet met: needs at least 1 REAL click → conversion → commission. Campaign #3 real clicks exist (4, 2026-09-25) but NO conversion/commission yet — requires Owner to check Amazon Associates order/commission evidence for tracking ID `zorajewellery-21` (no evidence supplied to date).
 - No AI provider configured (not a Phase-00 core-loop blocker).
+- DEPENDENCY ADVISORIES (post-audit-fix, 2026-09-25): deployed-runtime multer DoS RESOLVED (platform-express 11.2.6, multer 2.4.0). Remaining 5 alerts are build/dev-time only, NOT reachable from the running API: postcss XSS/path-traversal via next (fixed only by breaking next@16 upgrade; web app not deployed, has no CSS files) and deepmerge-ts stack-exhaustion via prisma/@prisma/config (Prisma CLI-only, fixed only by prisma major). Deliberately DEFERRED to avoid breaking working architecture (per PROMPT §5); revisit when a non-breaking fix exists.
 
 ## Last updated
 2026-09-13 — TASK 6 (Pinterest manual-publishing wiring: `Channel` config enum, `content_assets` + disclosure/compliance gate; no API) + TASK 7 (dashboard: API `/dashboard/overview` + web `/dashboard`) done and verified live; 42 jest tests PASS; 12/12 Turbo tasks PASS
@@ -54,3 +55,5 @@
 2026-09-25 — COMPLETION AUDIT: everything re-verified. Tests 56/56 (7 suites) PASS; typecheck 3/3, lint 3/3, build 3/3 PASS; production /health 200 database=ok; unauth 401 fail-closed; click route 404-on-missing intact; no TODO/FIXME placeholders; git clean on main (ahead of origin 2 docs commits). Campaign #3 published (Pin live, 4 real Pinterest clicks, 0 conversions). Phase-00 BUSINESS gate BLOCKED on external Amazon Associates evidence (Owner action).
 
 2026-09-25 — THIRD AUTONOMOUS COMPLETION LOOP: added dashboard.service.spec.ts (5 tests) closing the last coverage gap (DashboardService.overview was the only untested service); fake-db.ts test-infra upgraded (count/aggregate/_count.select/orderBy/take/include.link, all Prisma query shapes the dashboard uses). Tests now 61/61 across 8 suites; typecheck 4/4, lint 3/3, build 3/3 PASS. No application-code change; Campaign #3 production state untouched; Phase-00 gate still BLOCKED on external Amazon Associates evidence.
+
+2026-09-25 — FOURTH AUTONOMOUS COMPLETION LOOP: (1) `npm audit fix` cleared the deployed-runtime multer DoS family (4 advisories; platform-express 11.2.6, multer 2.4.0, next 15.5.26 — all within existing non-breaking ranges); 5 build/dev-only alerts remain (postcss via next, deepmerge-ts via prisma) → deliberately deferred (breaking-major-only fixes). (2) Rate-limit guard memory bound (unbounded window Map → 10k cap + expired-window pruning). (3) defense-in-depth tests: recordClick rejects redirects for stored destinations that are not a valid URL / not https / not an amazon host. Tests now 65/65 (8 suites); typecheck 4/4, lint 3/3, build 3/3 PASS; production /health 200 database=ok; unauth 401 fail-closed. Coverage of business/security logic >90% lines. Campaign #3 untouched; Phase-00 still BLOCKED on external Amazon Associates evidence.

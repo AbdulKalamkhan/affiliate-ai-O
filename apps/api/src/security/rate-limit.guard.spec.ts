@@ -49,4 +49,13 @@ describe("RateLimitGuard", () => {
     }
     expect(() => guard.canActivate(ctx)).toThrow(HttpException);
   });
+
+  it("keeps the in-memory map bounded under high client-cardinality traffic", () => {
+    const guard = new RateLimitGuard();
+    const get = (ip: string) => guard.canActivate(makeCtx("POST", ip));
+    for (let i = 0; i < 10_100; i += 1) {
+      expect(get(`client-${i}`)).toBe(true);
+    }
+    expect(get("client-10_200")).toBe(true);
+  });
 });

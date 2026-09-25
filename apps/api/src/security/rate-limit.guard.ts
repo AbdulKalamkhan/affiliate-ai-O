@@ -3,6 +3,7 @@ import { CanActivate, ExecutionContext, HttpException, HttpStatus, Injectable } 
 const WINDOW_MS = 60_000;
 const PUBLIC_LIMIT = 60;
 const MUTATED_LIMIT = 10;
+const MAX_WINDOWS = 10_000;
 
 interface WindowState {
   count: number;
@@ -10,6 +11,16 @@ interface WindowState {
 }
 
 const WINDOWS = new Map<string, WindowState>();
+
+// Bound memory: the in-memory map holds one entry per (method, client) for one
+// window. Under varied client traffic (or a spoofed X-Forwarded-For flood) the
+// map could otherwise grow without limit. Expired entries are pruned every
+// window once the map grows large.
+const pruneExpired = (now: number): void => {
+  for (const [key, state] of WINDOWS) {
+    if (now >= state.resetAt) WINDOWS.delete(key);
+  }
+};
 
 const readIp = (request: { ip?: string; headers: Record<string, string | string[] | undefined> }): string => {
   const forwarded = request.headers["x-forwarded-for"];
@@ -32,6 +43,7 @@ export class RateLimitGuard implements CanActivate {
     const current = WINDOWS.get(stateKey);
 
     if (!current || now >= current.resetAt) {
+      if (WINDOWS.size >= MAX_WINDOWS) pruneExpired(now);
       WINDOWS.set(stateKey, { count: 1, resetAt: now + WINDOW_MS });
       return true;
     }

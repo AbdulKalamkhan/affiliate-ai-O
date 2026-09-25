@@ -133,6 +133,36 @@ describe("AffiliateLinkService", () => {
     await expect(service.recordClick("nope")).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it("rejects the redirect when a stored destination is not a valid URL (defense-in-depth)", async () => {
+    const { db } = makeFakeDb();
+    const link = await db.affiliateLink.create({
+      data: { provider: "amazon-associates", destination: "not-a-url" },
+    });
+    await expect(new AffiliateLinkService(db, manualProvider()).recordClick(link.id)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it("rejects the redirect when a stored destination is not https (defense-in-depth)", async () => {
+    const { db } = makeFakeDb();
+    const link = await db.affiliateLink.create({
+      data: { provider: "amazon-associates", destination: "http://www.amazon.in/dp/B08N5WRWNW" },
+    });
+    await expect(new AffiliateLinkService(db, manualProvider()).recordClick(link.id)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it("rejects the redirect when a stored destination is not an amazon host (defense-in-depth)", async () => {
+    const { db } = makeFakeDb();
+    const link = await db.affiliateLink.create({
+      data: { provider: "amazon-associates", destination: "https://evil.example/dp/B08N5WRWNW?tag=zorajewellery-21" },
+    });
+    await expect(new AffiliateLinkService(db, manualProvider()).recordClick(link.id)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
   it("throws 404 when getting a missing link", async () => {
     const { db } = makeFakeDb();
     const service = new AffiliateLinkService(db, manualProvider());
