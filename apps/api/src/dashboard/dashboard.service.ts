@@ -30,7 +30,9 @@ export class DashboardService {
         this.client.contentAsset.count(),
         this.client.contentAsset.count({ where: { published: true } }),
         this.client.affiliateLinkClick.count(),
-        this.client.revenueEvent.count(),
+        // Verified conversions only: a rejected event (invalid evidence) or a pending
+        // event (not yet reconciled) is NOT a conversion yet.
+        this.client.revenueEvent.count({ where: { status: "reconciled" } }),
         this.client.profitRecord.count(),
       ]),
       this.client.affiliateLink.findMany({
@@ -78,7 +80,7 @@ export class DashboardService {
         take: 5,
         include: { link: { include: { _count: { select: { clicks: true } } } } },
       }),
-      this.client.revenueEvent.findMany({ orderBy: { occurredAt: "desc" }, take: 5 }),
+      this.client.revenueEvent.findMany({ orderBy: { occurredAt: "desc" }, take: 5, include: { profitRecord: true } }),
     ]);
 
     return {
@@ -109,6 +111,7 @@ export class DashboardService {
         status: e.status,
         linkId: e.linkId,
         occurredAt: e.occurredAt,
+        netProfit: e.profitRecord ? toNumber(e.profitRecord.netProfit) : null,
       })),
     };
   }

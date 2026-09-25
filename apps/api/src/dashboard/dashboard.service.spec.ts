@@ -48,7 +48,7 @@ describe("DashboardService", () => {
     });
     await db.affiliateLinkClick.create({ data: { linkId: link.id } });
     await db.affiliateLinkClick.create({ data: { linkId: link.id } });
-    await db.revenueEvent.create({ data: { value: 100, status: "pending", provider: "amazon-associates" } });
+    await db.revenueEvent.create({ data: { value: 100, status: "reconciled", provider: "amazon-associates" } });
     await db.profitRecord.create({
       data: { source: "test", grossAmount: 100, feeAmount: 10, costAmount: 50, netProfit: 40 },
     });
@@ -94,7 +94,19 @@ describe("DashboardService", () => {
     const result = await new DashboardService(db).overview();
     expect(result.totals.revenue).toBe(75);
     expect(result.totals.profit).toBe(15);
-    expect(result.counts.conversions).toBe(4);
+    // Verified conversions only count reconciled events, NOT pending or rejected.
+    expect(result.counts.conversions).toBe(2);
+  });
+
+  it("does not count pending or rejected revenue events as conversions", async () => {
+    const { db } = makeFakeDb();
+    await db.revenueEvent.create({ data: { value: 10, status: "pending", provider: "amazon-associates" } });
+    await db.revenueEvent.create({ data: { value: 20, status: "rejected", provider: "amazon-associates" } });
+    await db.revenueEvent.create({ data: { value: 30, status: "reconciled", provider: "amazon-associates" } });
+
+    const result = await new DashboardService(db).overview();
+    expect(result.counts.conversions).toBe(1);
+    expect(result.totals.revenue).toBe(30);
   });
 
   it("returns the newest 5 records with click counts embedded on links and assets", async () => {

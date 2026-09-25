@@ -64,6 +64,20 @@ describe("RevenueService", () => {
     await expect(service.get("nope")).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it("embeds the linked profit record when reading an event (audit trail)", async () => {
+    const { db } = makeFakeDb();
+    const service = new RevenueService(db);
+    const event = await service.record({ provider: "amazon", sourceId: "ORD-1", value: 120 });
+    await service.reconcile(event.id, { grossAmount: 120, feeAmount: 20, costAmount: 10, source: "report-1" });
+    const audit = await service.get(event.id);
+    expect(audit.profitRecord).not.toBeNull();
+    expect(audit.profitRecord!.netProfit).toBe(90);
+    expect(audit.profitRecord!.source).toBe("report-1");
+    const pending = await service.record({ provider: "amazon", sourceId: "ORD-2", value: 50 });
+    const pendingAudit = await service.get(pending.id);
+    expect(pendingAudit.profitRecord).toBeNull();
+  });
+
   it("reconciles a pending event into a profit record with correct math", async () => {
     const { db } = makeFakeDb();
     const service = new RevenueService(db);

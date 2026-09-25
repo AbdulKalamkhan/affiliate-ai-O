@@ -103,3 +103,15 @@ DECISION: Money recording happens ONLY through the typed `RevenueModule` write p
 REASON: Phase-00 scope requires "revenue/commission/profit records" but only the tables + dashboard READ path existed — without a write path there was no sanctioned way (rule 00_START_HERE: never mutate DB except via typed services) to record verified Amazon Associates conversion/commission evidence when it arrives.
 ALTERNATIVES CONSIDERED: Direct DB writes by a future agent (rejected — violates architecture rule); write path gated on Owner-only manual SQL (rejected — un-scalable, unauditable); skipping the module as "later phase" (rejected — Phase-00 scope explicitly lists money records as an MVP deliverable).
 STATUS: ACTIVE
+
+DATE: 2026-09-25
+DECISION: Dashboard `conversions` metric counts ONLY `reconciled` revenue events (verified conversions). Pending and `rejected` events are excluded — rejected events (invalid evidence) and unreconciled pending events are NOT conversions and must never inflate the metric. The revenue total already counted reconciled-only; the conversion count now matches that money-integrity rule.
+REASON: Previously `conversions` used `revenueEvent.count()` (ALL rows) — a rejected or pending event falsely increased the count while the revenue card showed only reconciled sums, overstating business truth and contradicting the rule "a conversion is NOT automatically verified commission. An estimated commission is NOT verified commission."
+ALTERNATIVES CONSIDERED: Counting all non-rejected (pending+reconciled) events (rejected — pending is not yet verified); exposing a separate pending-count field (rejected — recentRevenueEvents already surfaces per-event status).
+STATUS: ACTIVE
+
+DATE: 2026-09-25
+DECISION: `GET /revenue-events/:id` includes the linked ProfitRecord (source, grossAmount, feeAmount, costAmount, netProfit, currency) so one read exposes the complete verified chain (evidence event + reconciled profit record). The dashboard's `recentRevenueEvents` and web /dashboard display the per-event `netProfit`.
+REASON: ProfitRecords previously existed only as an aggregate dashboard sum — the per-event auditable breakdown (gross/fee/cost/net + evidence source) was unreachable read-only, leaving the Phase-00 "AUDIT TRAIL" lifecycle step incomplete.
+ALTERNATIVES CONSIDERED: Separate GET /profit-records listing endpoint (rejected — a dedicated endpoint adds surface without new capability; the relation already links them 1:1 via revenueEventId).
+STATUS: ACTIVE

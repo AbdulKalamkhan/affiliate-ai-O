@@ -53,4 +53,20 @@ Memory updated: YES (03, 05, 06, 09, 10, 11, MASTER)
 Evidence recorded: YES (tests + this report; production/Campaign #3 untouched — 4 clicks, 0 conversions, revenue ₹0, profit ₹0)
 Final gate: BLOCKED (unchanged) — external Amazon Associates conversion/commission evidence still required. Difference vs prior report: the sanctioned recording path that was previously MISSING now EXISTS, is tested, and is ready — record (via POST /revenue-events) → reconcile (POST /revenue-events/:id/reconcile) once the Owner supplies verified evidence.
 
+---
+
+**Gate report — 2026-09-25 (loop-8 terminal-consumer + money-lifecycle audit)**
+PHASE: 00 — Money-First MVP
+Objective: money loop live end-to-end (real click → conversion → commission) — final gate
+Repository evidence: traced full lifecycle chain — RevenueEvent (revenue.service/controller/spec) → reconcile → ProfitRecord → dashboard.service.overview (counts/totals/recentRevenueEvents) → web /dashboard/page.tsx (server-side fetch, types, cards, recent events); fake-db revenueEvent.profitRecord include; prisma schema (RevenueEvent↔ProfitRecord 1:1 via revenueEventId @unique)
+Changes made: (1) dashboard `counts.conversions` now counts ONLY `status:"reconciled"` events (was ALL revenue events incl rejected/pending → inflated, overstated truth); + regression test. (2) GET /revenue-events/:id includes the linked ProfitRecord (audit trail: source, gross/fee/cost/net); reconcile returns it embedded; dashboard recentRevenueEvents + web /dashboard expose per-event netProfit. No schema/migration change.
+Tests: PASS (88/88, 9 suites; +2)   Typecheck: PASS (4/4)   Lint: PASS (3/3)
+Build: PASS (3/3, incl web /dashboard SSR)   Database: PASS (prisma validate; production /health 200 database=ok)
+Security: PASS (all revenue routes remain behind APP_GUARD; new read include adds no surface)
+Amazon compliance check: N/A engineering. Still NO conversion/commission evidence supplied — nothing recorded, NOTHING fabricated.
+Regression: PASS (all prior 86 tests still green)
+Memory updated: YES (03, 09, 10, 11, MASTER, this entry)
+Evidence recorded: YES (tests + this report; Campaign #3 production state untouched — 4 clicks, 0 conversions, revenue ₹0, profit ₹0)
+Final gate: BLOCKED (unchanged) — external Amazon Associates conversion/commission evidence still required. The money lifecycle is now complete end-to-end EXCEPT the real-evidence inputs: click→track (works), evidence→verify→record (works, RevenueModule), reconcile→profit→audit (works, dashboard + GET include). Phase-00 passes only when Owner supplies verified evidence.
+
 (Add a new dated entry each time a phase report is generated. Do not delete old entries — this is the audit trail.)

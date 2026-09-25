@@ -65,6 +65,12 @@ export function makeFakeDb(): FakeDbResult {
         return { ...row, link: link ? withCount(link) : (undefined as unknown) };
       });
     }
+    if (name === "revenueEvent" && include.profitRecord) {
+      return rowsList.map((row) => {
+        const profit = ensure("profitRecord").find((p) => p.revenueEventId === row.id);
+        return { ...row, profitRecord: profit ?? null };
+      });
+    }
     return rowsList;
   };
 

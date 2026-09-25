@@ -77,7 +77,12 @@ export class RevenueService {
   }
 
   async get(id: string) {
-    const row = await this.client.revenueEvent.findUnique({ where: { id } });
+    // Audit trail: include the linked ProfitRecord so a single event read exposes the
+    // full verified chain (evidence event + reconciled profit record).
+    const row = await this.client.revenueEvent.findUnique({
+      where: { id },
+      include: { profitRecord: true },
+    });
     if (!row) {
       throw new NotFoundException(`revenue event ${id} not found`);
     }
@@ -125,7 +130,7 @@ export class RevenueService {
     });
     await this.client.revenueEvent.update({ where: { id }, data: { status: "reconciled" } });
 
-    return { event: { ...event, status: "reconciled" as const }, profitRecord };
+    return { event: { ...event, status: "reconciled" as const, profitRecord }, profitRecord };
   }
 
   async reject(id: string) {

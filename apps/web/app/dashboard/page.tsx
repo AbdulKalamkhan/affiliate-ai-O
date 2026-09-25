@@ -49,6 +49,7 @@ interface OverviewRecentEvent {
   status: string;
   linkId: string | null;
   occurredAt: string;
+  netProfit: number | null;
 }
 
 interface OverviewData {
@@ -116,7 +117,7 @@ export default async function DashboardPage() {
             <div style={cardStyle}>
               <strong>Conversions</strong>
               <div style={{ fontSize: "1.6rem" }}>{data.counts.conversions}</div>
-              <small>revenue events (reconciled only count toward revenue)</small>
+              <small>verified (reconciled) revenue events</small>
             </div>
             <div style={cardStyle}>
               <strong>Revenue (reconciled)</strong>
@@ -192,8 +193,8 @@ export default async function DashboardPage() {
             <ul>
               {data.recentRevenueEvents.map((event) => (
                 <li key={event.id}>
-                  {event.provider} · {event.eventType} · {inr(event.value)} {event.currency} · {event.status} ·{" "}
-                  {event.occurredAt}
+                  {event.provider} · {event.eventType} · {inr(event.value)} {event.currency} · {event.status}
+                  {event.netProfit !== null ? ` · profit ${inr(event.netProfit)}` : ""} · {event.occurredAt}
                 </li>
               ))}
             </ul>
