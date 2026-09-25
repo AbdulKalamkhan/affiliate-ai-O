@@ -97,3 +97,9 @@ DECISION: Rate-limit per-client identity is resolved from the server-computed `r
 REASON: A client can trivially forge `X-Forwarded-For`, so trusting it allowed the per-IP rate limit to be bypassed by rotating a spoofed value each request. `req.ip` under trust-proxy-1 is derived from the actual connection/proxy chain and is not client-controllable.
 ALTERNATIVES CONSIDERED: Continuing to trust the leftmost XFF value (rejected — spoofable); trusting the rightmost XFF value (rejected — equivalent risk with client-supplied chains); removing per-client rate limiting (rejected — security regression).
 STATUS: ACTIVE
+
+DATE: 2026-09-25
+DECISION: Money recording happens ONLY through the typed `RevenueModule` write path — POST /revenue-events creates a PENDING `revenue_event` (idempotent on the schema unique `[provider, sourceId]` pair); POST /revenue-events/:id/reconcile creates the `profit_record` with `netProfit = grossAmount − feeAmount − costAmount` (never treat gross as profit) and flips the event to `reconciled` (pending-only; reconciled/rejected is final); POST /revenue-events/:id/reject marks invalid evidence. Event `value` is the provider-reported commission amount; ProfitRecord carries gross/fee/cost/net + a `source` evidence reference. All endpoints sit behind the global API-key guard + rate limit.
+REASON: Phase-00 scope requires "revenue/commission/profit records" but only the tables + dashboard READ path existed — without a write path there was no sanctioned way (rule 00_START_HERE: never mutate DB except via typed services) to record verified Amazon Associates conversion/commission evidence when it arrives.
+ALTERNATIVES CONSIDERED: Direct DB writes by a future agent (rejected — violates architecture rule); write path gated on Owner-only manual SQL (rejected — un-scalable, unauditable); skipping the module as "later phase" (rejected — Phase-00 scope explicitly lists money records as an MVP deliverable).
+STATUS: ACTIVE

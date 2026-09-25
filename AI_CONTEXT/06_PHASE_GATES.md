@@ -37,4 +37,20 @@ Memory updated: YES (03, 05, 06, MASTER, 11_AI_MEMORY all reconciled; 10_CHANGE_
 Evidence recorded: YES (dashboard read-back publishedAssets=1, clicksByChannel PINTEREST=4, conversions=0, revenue ₹0, profit ₹0, commission UNKNOWN)
 Final gate: BLOCKED — business evidence required from Owner (Amazon Associates reporting for tracking ID `zorajewellery-21` / ASIN B08BG1HC7R since 2026-09-25). No engineering work remaining that could pass this gate; do not fabricate evidence, do not start other campaigns.
 
+---
+
+**Gate report — 2026-09-25 (loop-7 re-audit: money-record write path closed)**
+PHASE: 00 — Money-First MVP
+Objective: money loop live end-to-end (real click → conversion → commission) — final gate
+Repository evidence: inspected revenue.module.ts/revenue.controller.ts/revenue.service.ts (+ revenue.service.spec.ts, 14 cases), app.module.ts (RevenueModule imported, APP_GUARD intact), db-client/tokens (revenueEvent+profitRecord delegates), prisma schema (RevenueEvent @@unique[provider,sourceId], ProfitRecord netProfit=gross−fee−cost), dashboard.service.ts (reconciled-only read path unchanged)
+Changes made: ADDED the missing paid-write PATH (Phase-00 deliverable "revenue/commission/profit records"): POST /revenue-events records a PENDING event (validates provider + positive finite value, idempotent on [provider, sourceId]); POST /revenue-events/:id/reconcile creates ProfitRecord (netProfit=gross−fee−cost, source evidence ref) + flips event to reconciled (pending-only; reconciled/rejected final); POST /revenue-events/:id/reject marks invalid evidence; GET list/newest-first + GET :id for audit read-back. All behind global API-key guard + rate limit. NO schema/migration change (tables already existed).
+Tests: PASS (86/86, 9 suites; +14 revenue)   Typecheck: PASS (4/4)   Lint: PASS (3/3)
+Build: PASS (3/3)   Database: PASS (prisma validate; no migration needed; production /health 200 database=ok)
+Security: PASS (new routes are fail-closed behind APP_GUARD by default — no @Public; money mutations rate-limited)
+Amazon compliance check: N/A engineering. Still NO conversion/commission evidence supplied — nothing recorded, NOTHING fabricated.
+Regression: PASS (all prior 72 tests still green; dashboard read path unchanged)
+Memory updated: YES (03, 05, 06, 09, 10, 11, MASTER)
+Evidence recorded: YES (tests + this report; production/Campaign #3 untouched — 4 clicks, 0 conversions, revenue ₹0, profit ₹0)
+Final gate: BLOCKED (unchanged) — external Amazon Associates conversion/commission evidence still required. Difference vs prior report: the sanctioned recording path that was previously MISSING now EXISTS, is tested, and is ready — record (via POST /revenue-events) → reconcile (POST /revenue-events/:id/reconcile) once the Owner supplies verified evidence.
+
 (Add a new dated entry each time a phase report is generated. Do not delete old entries — this is the audit trail.)

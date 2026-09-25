@@ -1,0 +1,152 @@
+import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { RevenueService } from "./revenue.service";
+import { makeFakeDb } from "../test/fake-db";
+
+describe("RevenueService", () => {
+  it("rejects missing provider", async () => {
+    const { db } = makeFakeDb();
+    const service = new RevenueService(db);
+    await expect(service.record({ provider: "   ", value: 100 })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("rejects non-positive or non-finite value", async () => {
+    const { db } = makeFakeDb();
+    const service = new RevenueService(db);
+    await expect(service.record({ provider: "amazon", value: 0 })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.record({ provider: "amazon", value: -5 })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.record({ provider: "amazon", value: Number.NaN })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("creates a pending revenue event with trimmed provider and defaults", async () => {
+    const { db, rows } = makeFakeDb();
+    const service = new RevenueService(db);
+    const created = await service.record({ provider: "  amazon-associates  ", value: 100.5, sourceId: "  ORD-1  " });
+    expect(created.provider).toBe("amazon-associates");
+    expect(created.sourceId).toBe("ORD-1");
+    expect(created.eventType).toBe("sale");
+    expect(created.currency).toBe("INR");
+    expect(created.status).toBe("pending");
+    expect(created.value).toBe(100.5);
+    expect(created.occurredAt).toBeInstanceOf(Date);
+    expect(rows["revenueEvent"]).toHaveLength(1);
+  });
+
+  it("is idempotent for the same provider+sourceId", async () => {
+    const { db, rows } = makeFakeDb();
+    const service = new RevenueService(db);
+    const first = await service.record({ provider: "amazon", sourceId: "ORD-1", value: 100 });
+    const second = await service.record({ provider: "amazon", sourceId: "ORD-1", value: 999 });
+    expect(second.id).toBe(first.id);
+    expect(rows["revenueEvent"]).toHaveLength(1);
+  });
+
+  it("creates separate events when sourceId differs or is absent", async () => {
+    const { db, rows } = makeFakeDb();
+    const service = new RevenueService(db);
+    await service.record({ provider: "amazon", sourceId: "ORD-1", value: 100 });
+    await service.record({ provider: "amazon", sourceId: "ORD-2", value: 100 });
+    await service.record({ provider: "amazon", value: 100 });
+    expect(rows["revenueEvent"]).toHaveLength(3);
+  });
+
+  it("lists events newest first by occurredAt", async () => {
+    const { db } = makeFakeDb();
+    const service = new RevenueService(db);
+    await service.record({ provider: "amazon", sourceId: "A", value: 100, occurredAt: new Date("2026-09-01") });
+    await service.record({ provider: "amazon", sourceId: "B", value: 100, occurredAt: new Date("2026-09-15") });
+    const listed = await service.list();
+    expect(listed.map((r) => r.sourceId)).toEqual(["B", "A"]);
+  });
+
+  it("throws 404 when getting a missing event", async () => {
+    const { db } = makeFakeDb();
+    const service = new RevenueService(db);
+    await expect(service.get("nope")).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("reconciles a pending event into a profit record with correct math", async () => {
+    const { db } = makeFakeDb();
+    const service = new RevenueService(db);
+    const event = await service.record({ provider: "amazon", sourceId: "ORD-1", value: 120 });
+    const result = await service.reconcile(event.id, { grossAmount: 120, feeAmount: 20, costAmount: 10 });
+    expect(result.profitRecord.sourceType).toBe("affiliate");
+    expect(result.profitRecord.source).toBe(`amazon:ORD-1`);
+    expect(result.profitRecord.grossAmount).toBe(120);
+    expect(result.profitRecord.feeAmount).toBe(20);
+    expect(result.profitRecord.costAmount).toBe(10);
+    expect(result.profitRecord.netProfit).toBe(90);
+    expect(result.profitRecord.currency).toBe("INR");
+    expect(result.profitRecord.revenueEventId).toBe(event.id);
+    expect(result.event.status).toBe("reconciled");
+    const after = await service.get(event.id);
+    expect(after.status).toBe("reconciled");
+  });
+
+  it("allows a negative net profit (loss) when costs exceed gross", async () => {
+    const { db } = makeFakeDb();
+    const service = new RevenueService(db);
+    const event = await service.record({ provider: "amazon", sourceId: "ORD-1", value: 50 });
+    const result = await service.reconcile(event.id, {
+      grossAmount: 50,
+      feeAmount: 5,
+      costAmount: 60,
+      source: "evidence-2",
+    });
+    expect(result.profitRecord.netProfit).toBe(-15);
+    expect(result.profitRecord.source).toBe("evidence-2");
+  });
+
+  it("rejects non-finite or negative amounts during reconcile", async () => {
+    const { db } = makeFakeDb();
+    const service = new RevenueService(db);
+    const event = await service.record({ provider: "amazon", value: 100 });
+    await expect(
+      service.reconcile(event.id, { grossAmount: Number.NaN, feeAmount: 0, costAmount: 0 }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.reconcile(event.id, { grossAmount: 100, feeAmount: -1, costAmount: 0 }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("refuses to reconcile an already reconciled or rejected event", async () => {
+    const { db } = makeFakeDb();
+    const service = new RevenueService(db);
+    const ok = await service.record({ provider: "amazon", value: 100 });
+    await service.reconcile(ok.id, { grossAmount: 100, feeAmount: 0, costAmount: 0 });
+    await expect(
+      service.reconcile(ok.id, { grossAmount: 100, feeAmount: 0, costAmount: 0 }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    const rejected = await service.record({ provider: "amazon", value: 100 });
+    await service.reject(rejected.id);
+    await expect(
+      service.reconcile(rejected.id, { grossAmount: 100, feeAmount: 0, costAmount: 0 }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("throws 404 when reconciling a missing event", async () => {
+    const { db } = makeFakeDb();
+    const service = new RevenueService(db);
+    await expect(
+      service.reconcile("nope", { grossAmount: 100, feeAmount: 0, costAmount: 0 }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("rejects a pending event and refuses double rejection", async () => {
+    const { db } = makeFakeDb();
+    const service = new RevenueService(db);
+    const event = await service.record({ provider: "amazon", value: 100 });
+    const rejected = await service.reject(event.id);
+    expect(rejected.status).toBe("rejected");
+    await expect(service.reject(event.id)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.reconcile(event.id, { grossAmount: 100, feeAmount: 0, costAmount: 0 }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("throws 404 when rejecting a missing event", async () => {
+    const { db } = makeFakeDb();
+    const service = new RevenueService(db);
+    await expect(service.reject("nope")).rejects.toBeInstanceOf(NotFoundException);
+  });
+});

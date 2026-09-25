@@ -6,11 +6,12 @@ import { OpportunityModule } from "./opportunities/opportunity.module";
 import { AffiliateModule } from "./affiliates/affiliate.module";
 import { ContentAssetModule } from "./content-assets/content-asset.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
+import { RevenueModule } from "./revenue/revenue.module";
 import { ApiKeyGuard } from "./security/api-key.guard";
 import { RateLimitGuard } from "./security/rate-limit.guard";
 
 @Module({
-  imports: [DatabaseModule, OpportunityModule, AffiliateModule, ContentAssetModule, DashboardModule],
+  imports: [DatabaseModule, OpportunityModule, AffiliateModule, ContentAssetModule, DashboardModule, RevenueModule],
   controllers: [HealthController],
   providers: [
     { provide: APP_GUARD, useClass: ApiKeyGuard },

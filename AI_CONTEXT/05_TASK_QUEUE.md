@@ -11,6 +11,7 @@
 6. [x] Manual publish to ONE content channel — Pinterest chosen by Owner; NO Pinterest API (SOC-04 is later phase); pins created manually via `content_assets` (2026-09-13, TASK 6)
 7. [x] Minimal dashboard page showing clicks/conversions/profit (2026-09-13, TASK 7)
 8. [ ] VERIFY-01 — Universal Completion Prompt before marking Phase 00 done (blocked on real conversion → verified commission evidence: Campaign #3 Pin is published and has 4 REAL clicks — pin publication is NOT the remaining blocker; awaiting Amazon Associates conversion/commission evidence for tracking ID `zorajewellery-21`. Nothing to build; Owner must supply/verify the money-loop evidence)
+9. [x] REVENUE-01 — typed money-recording write path: RevenueModule (`POST /revenue-events` records pending event idempotently on [provider, sourceId]; `POST /revenue-events/:id/reconcile` → ProfitRecord netProfit=gross−fee−cost, status reconciled; `POST /revenue-events/:id/reject`; GET list/get for evidence read-back). Closes Phase-00 "revenue/commission/profit records" write-side + rule 00_START_HERE "never mutate DB except via typed services". (2026-09-25, tests 86/86, schema UNCHANGED — no migration needed). Ready for when Owner supplies verified Amazon evidence.
 
 ## Backlog (do not start before Phase 00 gate passes)
 - PHASE-01 through PHASE-12 task prompts — see AI_OS_Agent_Documentation.md Section 12
