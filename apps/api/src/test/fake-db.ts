@@ -15,13 +15,13 @@ export function makeFakeDb(): FakeDbResult {
   const ensure = (name: string): FakeRow[] => (rows[name] ??= []);
 
   const DEFAULTS: Record<string, Record<string, unknown>> = {
-  contentAsset: { published: false, disclosureAdded: false },
-};
+    contentAsset: { published: false, disclosureAdded: false },
+  };
 
-const withDefaults = (name: string, data: Record<string, unknown>): Record<string, unknown> => ({
-  ...(DEFAULTS[name] ?? {}),
-  ...data,
-});
+  const withDefaults = (name: string, data: Record<string, unknown>): Record<string, unknown> => ({
+    ...(DEFAULTS[name] ?? {}),
+    ...data,
+  });
 
   const delegate = (name: string) => ({
     create: async ({ data }: { data: Record<string, unknown> }): Promise<FakeRow> => {
