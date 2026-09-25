@@ -46,10 +46,43 @@ describe("AffiliateLinkService", () => {
     expect(link.productTitle).toBe("kept");
   });
 
+  it("lists links newest-first with embedded click counts", async () => {
+    const { db } = makeFakeDb();
+    const service = new AffiliateLinkService(db, manualProvider());
+    const older = await service.createLink({ url: "https://www.amazon.in/dp/B08N5WRWNW" });
+    await service.recordClick(older.id);
+    await new Promise((r) => setTimeout(r, 5));
+    const newer = await service.createLink({ url: "https://www.amazon.in/dp/B08N5WRWNW?th=1" });
+    const list = await service.list();
+    expect(list).toHaveLength(2);
+    expect(list[0].id).toBe(newer.id);
+    expect(list[0]._count.clicks).toBe(0);
+    expect(list[1].id).toBe(older.id);
+    expect(list[1]._count.clicks).toBe(1);
+  });
+
   it("rejects a missing url", async () => {
     const { db } = makeFakeDb();
     const service = new AffiliateLinkService(db, manualProvider());
     await expect(service.createLink({ url: "" })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("rejects when the server associate tag is blank (config guard)", async () => {
+    const original = process.env.ASSOCIATE_TAG;
+    try {
+      process.env.ASSOCIATE_TAG = "   ";
+      const { db } = makeFakeDb();
+      const service = new AffiliateLinkService(db, manualProvider());
+      await expect(service.createLink({ url: "https://www.amazon.in/dp/B08N5WRWNW" })).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    } finally {
+      if (original === undefined) {
+        delete process.env.ASSOCIATE_TAG;
+      } else {
+        process.env.ASSOCIATE_TAG = original;
+      }
+    }
   });
 
   it("rejects non-https urls", async () => {

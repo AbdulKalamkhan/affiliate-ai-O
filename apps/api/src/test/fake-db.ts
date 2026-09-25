@@ -71,6 +71,7 @@ export function makeFakeDb(): FakeDbResult {
   const delegate = (name: string) => ({
     create: async ({ data }: { data: Record<string, unknown> }): Promise<FakeRow> => {
       const row: FakeRow = { id: `${name}_${ensure(name).length + 1}`, ...withDefaults(name, data) };
+      if (!("createdAt" in row)) row.createdAt = new Date();
       ensure(name).push(row);
       return row;
     },

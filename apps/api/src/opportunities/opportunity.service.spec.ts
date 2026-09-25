@@ -62,6 +62,34 @@ describe("OpportunityService", () => {
     await expect(service.update(created.id, { status: "bogus" })).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it("rejects an empty name on update", async () => {
+    const { db } = makeFakeDb();
+    const service = new OpportunityService(db);
+    const created = await service.create({ name: "a" });
+    await expect(service.update(created.id, { name: "   " })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("trims fields on update and keeps untouched fields", async () => {
+    const { db } = makeFakeDb();
+    const service = new OpportunityService(db);
+    const created = await service.create({ name: "a", category: "Jewellery" });
+    const updated = await service.update(created.id, { name: "  b  ", notes: "  note  " });
+    expect(updated.name).toBe("b");
+    expect(updated.notes).toBe("note");
+    expect(updated.category).toBe("Jewellery");
+    expect(updated.status).toBe("researching");
+  });
+
+  it("clears nullable fields to null and treats null status as a no-op", async () => {
+    const { db } = makeFakeDb();
+    const service = new OpportunityService(db);
+    const created = await service.create({ name: "a", category: "Jewellery", notes: "n", status: "live" });
+    const updated = await service.update(created.id, { category: null, notes: null, status: null });
+    expect(updated.category).toBeNull();
+    expect(updated.notes).toBeNull();
+    expect(updated.status).toBe("live");
+  });
+
   it("throws 404 when updating a missing opportunity", async () => {
     const { db } = makeFakeDb();
     const service = new OpportunityService(db);
