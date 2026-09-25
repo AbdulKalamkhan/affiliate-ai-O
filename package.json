@@ -16,7 +16,9 @@
     "db:generate": "prisma generate --schema packages/database/prisma/schema.prisma",
     "db:migrate": "prisma migrate dev --schema packages/database/prisma/schema.prisma",
     "db:deploy": "prisma migrate deploy --schema packages/database/prisma/schema.prisma",
-    "db:studio": "prisma studio --schema packages/database/prisma/schema.prisma"
+    "db:studio": "prisma studio --schema packages/database/prisma/schema.prisma",
+    "db:backup": "node scripts/db-backup.mjs",
+    "db:restore-test": "node scripts/db-restore-test.mjs"
   },
   "devDependencies": {
     "turbo": "^2.5.0",
