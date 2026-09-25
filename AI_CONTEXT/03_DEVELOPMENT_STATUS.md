@@ -17,7 +17,7 @@
 - Typecheck: PASS — all 3 workspaces (@ai-os/web, @ai-os/api, @ai-os/database)
 - Lint: PASS — all 3 workspaces
 - Build: PASS — nest build + next build (production)
-- Tests: PASS — @ai-os/api jest: 10 suites / 97 tests (verified 2026-09-25: 88 + loop-9 Phase-01 Boss core +9; fake-db.ts stamps createdAt like Prisma and supports count/aggregate/_count/orderBy/take/include incl boss relations); database/web: no tests configured
+- Tests: PASS — @ai-os/api jest: 10 suites / 100 tests (verified 2026-09-25: 97 at loop-9 + 3 loop-10 audit-hardening regression tests — oversize-text 400, update-audit+detail, soft-archive-preserves-trail; fake-db.ts stamps createdAt like Prisma and supports count/aggregate/_count/orderBy/take/include incl boss relations); database/web: no tests configured
 - DB connectivity: PASS — migrations `20260913132220_init` + `20260913135814_add_opportunities_and_product_fields` + `20260913142055_add_content_assets_and_channel` + `20260925123000_add_boss_core`; \dt shows affiliate_links, affiliate_link_clicks, content_assets, opportunities, revenue_events, profit_records, boss_commands, boss_plans, boss_tasks, boss_actions, boss_audit_logs, _prisma_migrations
 
 ## Phase 00 checklist (target: 1-2 weeks)
