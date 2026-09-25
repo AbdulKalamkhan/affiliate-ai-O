@@ -3,6 +3,7 @@ import { Inject } from "@nestjs/common";
 import { prisma } from "@ai-os/database";
 import type { DbClient } from "../db/db-client";
 import { DB_CLIENT } from "../db/tokens";
+import { RevenueService } from "../revenue/revenue.service";
 
 function toNumber(value: unknown): number {
   if (value === null || value === undefined) return 0;
@@ -20,7 +21,10 @@ const LINKS_META = {
 
 @Injectable()
 export class DashboardService {
-  constructor(@Inject(DB_CLIENT) private readonly client: DbClient = prisma as DbClient) {}
+  constructor(
+    @Inject(DB_CLIENT) private readonly client: DbClient = prisma as DbClient,
+    private readonly revenue: RevenueService,
+  ) {}
 
   async overview() {
     const [counts, links, aggregates] = await Promise.all([
@@ -83,6 +87,10 @@ export class DashboardService {
       this.client.revenueEvent.findMany({ orderBy: { occurredAt: "desc" }, take: 5, include: { profitRecord: true } }),
     ]);
 
+    // Phase-03 revenue-concentration KPI (reconciled/verified events only; a single
+    // provider over the threshold raises riskAlerts for the CEO report).
+    const concentration = await this.revenue.concentration();
+
     return {
       at: new Date().toISOString(),
       counts: {
@@ -99,6 +107,7 @@ export class DashboardService {
         profit: toNumber(profitAgg._sum.netProfit),
       },
       clicksByChannel,
+      concentration,
       recentLinks,
       recentAssets,
       recentRevenueEvents: recentRevenueEvents.map((e) => ({

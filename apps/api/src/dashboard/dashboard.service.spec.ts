@@ -1,5 +1,9 @@
 import { DashboardService } from "./dashboard.service";
+import { RevenueService } from "../revenue/revenue.service";
 import { makeFakeDb } from "../test/fake-db";
+
+const makeService = (db: ReturnType<typeof makeFakeDb>["db"]) =>
+  new DashboardService(db, new RevenueService(db));
 
 const seedLink = async (
   db: ReturnType<typeof makeFakeDb>["db"],
@@ -17,7 +21,7 @@ const seedLink = async (
 describe("DashboardService", () => {
   it("reports zero counts and zero totals on an empty database", async () => {
     const { db } = makeFakeDb();
-    const result = await new DashboardService(db).overview();
+    const result = await makeService(db).overview();
     expect(result.counts).toEqual({
       opportunities: 0,
       affiliateLinks: 0,
@@ -53,7 +57,7 @@ describe("DashboardService", () => {
       data: { source: "test", grossAmount: 100, feeAmount: 10, costAmount: 50, netProfit: 40 },
     });
 
-    const result = await new DashboardService(db).overview();
+    const result = await makeService(db).overview();
     expect(result.counts).toEqual({
       opportunities: 1,
       affiliateLinks: 1,
@@ -73,7 +77,7 @@ describe("DashboardService", () => {
     await db.affiliateLinkClick.create({ data: { linkId: a.id } });
     await db.affiliateLinkClick.create({ data: { linkId: b.id } });
 
-    const result = await new DashboardService(db).overview();
+    const result = await makeService(db).overview();
     expect(result.clicksByChannel).toEqual({ PINTEREST: 3 });
     expect(result.counts.clicks).toBe(3);
   });
@@ -91,7 +95,7 @@ describe("DashboardService", () => {
       data: { source: "test", grossAmount: 20, feeAmount: 2, costAmount: 13.5, netProfit: 4.5 },
     });
 
-    const result = await new DashboardService(db).overview();
+    const result = await makeService(db).overview();
     expect(result.totals.revenue).toBe(75);
     expect(result.totals.profit).toBe(15);
     // Verified conversions only count reconciled events, NOT pending or rejected.
@@ -104,7 +108,7 @@ describe("DashboardService", () => {
     await db.revenueEvent.create({ data: { value: 20, status: "rejected", provider: "amazon-associates" } });
     await db.revenueEvent.create({ data: { value: 30, status: "reconciled", provider: "amazon-associates" } });
 
-    const result = await new DashboardService(db).overview();
+    const result = await makeService(db).overview();
     expect(result.counts.conversions).toBe(1);
     expect(result.totals.revenue).toBe(30);
   });
@@ -130,7 +134,7 @@ describe("DashboardService", () => {
       },
     });
 
-    const result = await new DashboardService(db).overview();
+    const result = await makeService(db).overview();
     expect(result.recentLinks).toHaveLength(5);
     expect(result.recentLinks[0]._count.clicks).toBe(1);
     expect(result.recentLinks.map((l) => new Date(l.createdAt).toISOString())).toEqual([
@@ -148,5 +152,24 @@ describe("DashboardService", () => {
       status: "reconciled",
       provider: "amazon-associates",
     });
+  });
+
+  it("embeds the revenue-concentration KPI: reconciled-only, share %, and risk alert over the threshold", async () => {
+    const { db } = makeFakeDb();
+    await db.revenueEvent.create({ data: { value: 95, status: "reconciled", provider: "amazon-associates", currency: "INR" } });
+    await db.revenueEvent.create({ data: { value: 5, status: "reconciled", provider: "second-network", currency: "INR" } });
+    // pending/rejected must not inflate the KPI
+    await db.revenueEvent.create({ data: { value: 999, status: "pending", provider: "amazon-associates", currency: "INR" } });
+    await db.revenueEvent.create({ data: { value: 999, status: "rejected", provider: "amazon-associates", currency: "INR" } });
+
+    const result = await makeService(db).overview();
+    expect(result.concentration.totalRevenue).toBe(100);
+    expect(result.concentration.providerCount).toBe(2);
+    expect(result.concentration.concentrationThresholdPct).toBe(90);
+    expect(result.concentration.riskAlerts.map((p) => p.provider)).toEqual(["amazon-associates"]);
+    const amazon = result.concentration.providers.find((p) => p.provider === "amazon-associates")!;
+    expect(amazon.riskAlert).toBe(true);
+    expect(amazon.sharePct).toBe(95);
+    expect(result.concentration.providers.find((p) => p.provider === "second-network")!.sharePct).toBe(5);
   });
 });

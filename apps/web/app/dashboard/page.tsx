@@ -52,6 +52,15 @@ interface OverviewRecentEvent {
   netProfit: number | null;
 }
 
+interface OverviewConcentration {
+  totalRevenue: number;
+  currency: string;
+  providerCount: number;
+  concentrationThresholdPct: number;
+  riskAlerts: { provider: string; amount: number; sharePct: number }[];
+  providers: { provider: string; amount: number; currency: string; sharePct: number; riskAlert: boolean }[];
+}
+
 interface OverviewData {
   at: string;
   counts: {
@@ -65,6 +74,7 @@ interface OverviewData {
   };
   totals: { revenue: number; profit: number };
   clicksByChannel: Record<string, number>;
+  concentration: OverviewConcentration;
   recentLinks: OverviewRecentLink[];
   recentAssets: OverviewRecentAsset[];
   recentRevenueEvents: OverviewRecentEvent[];
@@ -152,6 +162,34 @@ export default async function DashboardPage() {
                 </li>
               ))}
             </ul>
+          )}
+
+          <h2>Revenue concentration</h2>
+          {data.concentration.providerCount === 0 ? (
+            <p style={{ color: "#888" }}>
+              No verified revenue yet — share per provider/network appears once reconciled revenue is recorded.
+            </p>
+          ) : (
+            <>
+              <p>
+                Total verified revenue: {inr(data.concentration.totalRevenue)} {data.concentration.currency} ·{" "}
+                {data.concentration.providerCount} provider(s) · concentration threshold{" "}
+                {data.concentration.concentrationThresholdPct}%
+              </p>
+              <ul>
+                {data.concentration.providers.map((p) => (
+                  <li key={p.provider}>
+                    {p.provider}: {inr(p.amount)} ({p.sharePct}%){p.riskAlert ? " ⚠ concentration risk" : ""}
+                  </li>
+                ))}
+              </ul>
+              {data.concentration.riskAlerts.length > 0 && (
+                <p style={{ color: "#a31515" }}>
+                  Risk alert: {data.concentration.riskAlerts.map((r) => r.provider).join(", ")} exceeds{" "}
+                  {data.concentration.concentrationThresholdPct}% of verified revenue.
+                </p>
+              )}
+            </>
           )}
 
           <h2>Recent links</h2>

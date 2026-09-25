@@ -174,6 +174,41 @@ describe("ContentAssetService", () => {
     expect(isPreApprovedPublishAsset("some-other-asset")).toBe(false);
   });
 
+  it("QA-01 requires BOTH gates: a network-compliant asset with failing content quality is still rejected", async () => {
+    const { db } = makeFakeDb();
+    const link = await seedLink(db);
+    const service = makeService(db);
+    const longTitle = "x".repeat(120); // >100 → content-quality gate fails
+    const asset = await service.create({
+      title: "short",
+      description: "Handmade sterling silver anklet. Disclosure: As an Amazon Associate I earn from qualifying purchases.",
+      linkId: link.id,
+    });
+    await service.update(asset.id, { disclosureAdded: true });
+
+    const err = await service.update(asset.id, { title: longTitle, published: true }).catch((e) => e);
+    expect(err).toBeInstanceOf(UnprocessableEntityException);
+    const verdict = err.response.verdict as QaVerdict;
+    expect(verdict.networkCompliancePass).toBe(true); // disclosure + destination pass
+    expect(verdict.contentQualityPass).toBe(false); // title_length fails
+    expect(verdict.publishReady).toBe(false);
+    const after = await service.get(asset.id);
+    expect(after.published).toBe(false); // nothing persisted
+  });
+
+  it("QA-01: re-affirming publish on an already-published asset is a no-op and is NEVER gated", async () => {
+    const { db } = makeFakeDb();
+    const link = await seedLink(db);
+    const service = makeService(db);
+    // Non-pre-approved asset, already live with real-ish state that would FAIL QA if freshly gated.
+    const asset = await db.contentAsset.create({
+      data: { title: "Anklet", description: "no disclosure sentence here", linkId: link.id, disclosureAdded: true, published: true },
+    });
+
+    const reaffirmed = await service.update(asset.id, { published: true });
+    expect(reaffirmed.published).toBe(true); // resolved without 422 — reaffirmation is a no-op
+  });
+
   it("lists, gets and removes assets (404 for missing)", async () => {
     const { db } = makeFakeDb();
     const link = await seedLink(db);
