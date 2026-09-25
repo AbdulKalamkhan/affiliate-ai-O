@@ -91,3 +91,9 @@ DATE: 2026-09-25
 DECISION: Recorded Pinterest evidence is the pin.it short URL (https://pin.it/7resx0jwa); canonical Pin ID remains UNKNOWN and is NOT to be invented or inferred.
 REASON: Evidence rules forbid fabricating Pin IDs; pin.it short link does not expose the canonical /pin/<ID>/ path in accessible read-only data.
 STATUS: ACTIVE
+
+DATE: 2026-09-25
+DECISION: Rate-limit per-client identity is resolved from the server-computed `req.ip` (Express `trust proxy=1` set in main.ts) FIRST, and only falls back to parsing `X-Forwarded-For` when `req.ip` is absent (unit-test requests). The raw `X-Forwarded-For` header alone is no longer trusted for identity.
+REASON: A client can trivially forge `X-Forwarded-For`, so trusting it allowed the per-IP rate limit to be bypassed by rotating a spoofed value each request. `req.ip` under trust-proxy-1 is derived from the actual connection/proxy chain and is not client-controllable.
+ALTERNATIVES CONSIDERED: Continuing to trust the leftmost XFF value (rejected — spoofable); trusting the rightmost XFF value (rejected — equivalent risk with client-supplied chains); removing per-client rate limiting (rejected — security regression).
+STATUS: ACTIVE

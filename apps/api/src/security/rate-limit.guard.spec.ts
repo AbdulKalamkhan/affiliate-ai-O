@@ -66,6 +66,23 @@ describe("RateLimitGuard", () => {
     expect(() => guard.canActivate(ctx)).toThrow(HttpException);
   });
 
+  it("ignores a spoofed X-Forwarded-For when Express computed req.ip (spoof-resistance)", () => {
+    const guard = new RateLimitGuard();
+    const ctx = {
+      switchToHttp: () => ({
+        getRequest: () => ({
+          method: "POST",
+          ip: "5.6.7.8",
+          headers: { "x-forwarded-for": "1.2.3.4, 9.9.9.9" },
+        }),
+      }),
+    } as never;
+    for (let i = 0; i < 10; i += 1) {
+      expect(guard.canActivate(ctx)).toBe(true);
+    }
+    expect(() => guard.canActivate(ctx)).toThrow(HttpException);
+  });
+
   it("keeps the in-memory map bounded under high client-cardinality traffic", () => {
     const guard = new RateLimitGuard();
     const get = (ip: string) => guard.canActivate(makeCtx("POST", ip));

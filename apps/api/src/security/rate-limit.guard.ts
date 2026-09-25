@@ -23,12 +23,17 @@ const pruneExpired = (now: number): void => {
 };
 
 const readIp = (request: { ip?: string; headers: Record<string, string | string[] | undefined> }): string => {
+  // Prefer the server-computed client IP (Express resolves req.ip using the
+  // `trust proxy` setting in main.ts). Trusting the raw X-Forwarded-For header
+  // instead would let a client spoof a fresh identity per request and bypass
+  // the per-IP limit. The header is only a fallback for test/injected requests.
+  if (request.ip) return request.ip;
   const forwarded = request.headers["x-forwarded-for"];
-  if (Array.isArray(forwarded)) return forwarded[0] ?? request.ip ?? "unknown";
+  if (Array.isArray(forwarded)) return forwarded[0] ?? "unknown";
   if (typeof forwarded === "string" && forwarded.length > 0) {
-    return forwarded.split(",")[0].trim() || request.ip || "unknown";
+    return forwarded.split(",")[0].trim() || "unknown";
   }
-  return request.ip ?? "unknown";
+  return "unknown";
 };
 
 @Injectable()
