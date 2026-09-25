@@ -10,6 +10,9 @@ export default function Home() {
         <li>
           <a href="/dashboard">dashboard</a> — clicks, conversions, profit
         </li>
+        <li>
+          <a href="/command-center">command center</a> — Boss commands → plans → actions, integration status
+        </li>
         <li>affiliate links + click tracker</li>
         <li>revenue_events / profit_records</li>
         <li>content assets for Pinterest publishing (manual)</li>
