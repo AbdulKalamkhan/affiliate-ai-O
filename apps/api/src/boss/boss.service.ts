@@ -10,8 +10,10 @@ export const AUTONOMY_LEVELS = [0, 1, 2, 3, 4, 5] as const;
 export type AutonomyLevel = (typeof AUTONOMY_LEVELS)[number];
 export const DEFAULT_AUTONOMY_LEVEL: AutonomyLevel = 2;
 
-export const BOSS_COMMAND_STATUSES = ["received", "planned"] as const;
+export const BOSS_COMMAND_STATUSES = ["received", "planned", "archived"] as const;
 export type BossCommandStatus = (typeof BOSS_COMMAND_STATUSES)[number];
+
+export const BOSS_COMMAND_TEXT_MAX_LENGTH = 4000;
 
 export interface CreateBossCommandInput {
   text: string;
@@ -60,6 +62,9 @@ export class BossService {
       throw new BadRequestException("text is required");
     }
     const text = input.text.trim();
+    if (text.length > BOSS_COMMAND_TEXT_MAX_LENGTH) {
+      throw new BadRequestException(`text must be at most ${BOSS_COMMAND_TEXT_MAX_LENGTH} characters`);
+    }
     const autonomyLevel = this.assertAutonomy(input.autonomyLevel);
 
     const command = await this.client.bossCommand.create({
@@ -140,23 +145,31 @@ export class BossService {
   }
 
   async update(id: string, input: Partial<Pick<CreateBossCommandInput, "autonomyLevel"> & { status?: string | null }>) {
-    await this.get(id);
-    if (input.autonomyLevel !== undefined) {
-      this.assertAutonomy(input.autonomyLevel);
-    }
+    const existing = await this.get(id);
+    const autonomyLevel = input.autonomyLevel !== undefined ? this.assertAutonomy(input.autonomyLevel) : undefined;
     this.assertStatus(input.status);
-    return this.client.bossCommand.update({
-      where: { id },
-      data: {
-        ...(input.autonomyLevel !== undefined ? { autonomyLevel: input.autonomyLevel } : {}),
-        ...(input.status !== undefined && input.status !== null ? { status: input.status } : {}),
-      },
+    const data: Record<string, unknown> = {
+      ...(autonomyLevel !== undefined ? { autonomyLevel } : {}),
+      ...(input.status !== undefined && input.status !== null ? { status: input.status } : {}),
+    };
+    if (Object.keys(data).length === 0) {
+      return existing;
+    }
+    await this.audit(existing.id, "command", existing.id, "updated", {
+      ...(autonomyLevel !== undefined ? { autonomyLevel } : {}),
+      ...(input.status !== undefined && input.status !== null ? { status: input.status } : {}),
     });
+    return this.client.bossCommand.update({ where: { id }, data });
   }
 
+  /** Safe removal: archives the command (soft-delete) so the audit trail survives. */
   async remove(id: string) {
     await this.get(id);
-    await this.client.bossCommand.delete({ where: { id } });
-    return { deleted: true, id };
+    await this.audit(id, "command", id, "archived");
+    await this.client.bossCommand.update({
+      where: { id },
+      data: { status: "archived" as BossCommandStatus },
+    });
+    return { archived: true, id };
   }
 }

@@ -88,4 +88,40 @@ describe("BossService", () => {
     const service = new BossService(db);
     await expect(service.get("nope")).rejects.toBeInstanceOf(NotFoundException);
   });
+
+  it("rejects an oversized command text", async () => {
+    const { db } = makeFakeDb();
+    const service = new BossService(db);
+    await expect(service.create({ text: "x".repeat(4001) })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("audits autonomy and status updates", async () => {
+    const { db, rows } = makeFakeDb();
+    const service = new BossService(db);
+    const created = await service.create({ text: "report revenue" });
+    const auditRef = rows.bossAuditLog.length;
+
+    await service.update(created.id, { autonomyLevel: 4 });
+
+    const added = rows.bossAuditLog.slice(auditRef);
+    const updatedVerb = added.find((l) => l.verb === "updated");
+    expect(updatedVerb).toBeDefined();
+    expect(updatedVerb!.detail).toEqual({ autonomyLevel: 4 });
+    expect((rows.bossCommand.find((c) => c.id === created.id)?.status as string) ?? "").toBe("planned");
+  });
+
+  it("archives a command on remove and preserves its audit trail", async () => {
+    const { db, rows } = makeFakeDb();
+    const service = new BossService(db);
+    const created = await service.create({ text: "report revenue" });
+    const auditCount = rows.bossAuditLog.length;
+
+    const res = await service.remove(created.id);
+
+    expect(res.archived).toBe(true);
+    const command = rows.bossCommand.find((c) => c.id === created.id);
+    expect(command?.status).toBe("archived");
+    expect(rows.bossAuditLog.length).toBe(auditCount + 1);
+    expect(rows.bossAuditLog.some((l) => l.commandId === created.id && l.verb === "archived")).toBe(true);
+  });
 });
