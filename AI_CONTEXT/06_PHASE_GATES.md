@@ -85,4 +85,20 @@ Memory updated: YES (03, 09, 10, 11, MASTER, this entry)
 Evidence recorded: YES (tests + this report; Campaign #3 production state untouched — 4 clicks, 0 conversions, revenue ₹0, profit ₹0)
 Final gate: BLOCKED (unchanged) — external Amazon Associates conversion/commission evidence still required. The money lifecycle is now complete end-to-end EXCEPT the real-evidence inputs: click→track (works), evidence→verify→record (works, RevenueModule), reconcile→profit→audit (works, dashboard + GET include). Phase-00 passes only when Owner supplies verified evidence.
 
+**Gate report — 2026-09-25 (Phase-02 opportunity intelligence, Owner MAXIMUM-AUTONOMY directive)**
+PHASE: 02 — Opportunity Intelligence
+Objective: repeatable evidence-backed ranked opportunities
+Repository evidence: apps/api/src/opportunity-intelligence/ (opportunity-intelligence.service.ts — deterministic versioned weight set SCORE_WEIGHTS_VERSION=1, per-claim evidence quality FACT/ESTIMATE/INFERENCE/PREDICTION/UNKNOWN, highest-quality-wins per factor, computeScore/rank; controller — POST/GET /opportunity-intelligence/opportunities/:id/evidence, GET /opportunity-intelligence/opportunities/:id/score, GET /opportunity-intelligence/ranked; module wired), prisma schema (additive Opportunity.evidence 1:N + OpportunityEvidence factor/quality/claim/source/value/capturedAt), migration 20260925130000_add_opportunity_evidence (1 table + index + FK), db-client + fake-db (opportunityEvidence delegate; capturedAt mirror of @default(now()))
+Changes made: added opportunity_evidence table (additive) + OpportunityIntelligenceModule — record research evidence (typed validation: canonical factor key, quality class, claim non-empty, value 0..1 finite), score one opportunity deterministically, and rank all opportunities by total evidence-backed score. QUALITY_WEIGHT (FACT 1.0 → UNKNOWN 0.0) means UNKNOWN-only claims contribute zero — trends do not rank as profit. Tie-break by createdAt. All routes fail-closed behind global API-key guard + rate limit. No fabricated evidence, no existing data mutated.
+Tests: PASS (106/106, 11 suites; +6)   Typecheck: PASS (4/4)   Lint: PASS (3/3)
+Build: PASS (3/3)   Database: PASS (prisma validate; additive migration 20260925130000_add_opportunity_evidence)
+Security: PASS (new routes protected by APP_GUARD by default — no @Public; evidence write path validated server-side)
+Amazon compliance check: N/A engineering. No conversion/commission evidence supplied — nothing recorded, NOTHING fabricated. Phase-00 unchanged (BLOCKED, 4 clicks, 0 conversions, revenue ₹0, profit ₹0).
+Regression: PASS (all prior 100 tests still green)
+Memory updated: YES (03, 05, 06, 10, 11, MASTER)
+Evidence recorded: YES (tests + this report; Phase-00 state untouched — no fabricated evidence, no money recorded; opportunity_evidence supports future research logging)
+Final gate: IN PROGRESS — Phase-02 evidence-backed ranked opportunities core COMPLETE + TESTED (gate "repeatable evidence-backed ranked opportunities" satisfied by deterministic scoring + ranking + persisted evidence). Trend-scoring/normalization tables (opportunity_signals, opportunity_scores, trend_signals) and estimation-financial layer (Affiliate-04 profit check) deferred to Phase-02 follow-ons. Phase-00 REMAINS BLOCKED on external Amazon Associates evidence.
+
+---
+
 (Add a new dated entry each time a phase report is generated. Do not delete old entries — this is the audit trail.)

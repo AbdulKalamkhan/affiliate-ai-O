@@ -29,9 +29,31 @@ model Opportunity {
   status    String   @default("researching") // researching | shortlisted | live
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  evidence  OpportunityEvidence[]
 
   @@index([status])
   @@map("opportunities")
+}
+
+// Phase-02: evidence-backed opportunity intelligence. Each research item records
+// the claim, its evidence QUALITY class (FACT | ESTIMATE | INFERENCE | PREDICTION |
+// UNKNOWN) and a typed scoring factor from the canonical weight set in
+// apps/api opportunity-intelligence. Deterministic scoring + ranking is computed
+// server-side from these rows; the engine never treats a trend as profit.
+model OpportunityEvidence {
+  id            String      @id @default(cuid())
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  factor        String // canonical factor key, e.g. "demand", "trend", "competition" (see WEIGHT_SET)
+  quality       String      @default("UNKNOWN") // FACT | ESTIMATE | INFERENCE | PREDICTION | UNKNOWN
+  claim         String // the evidence statement (e.g. live page fact, sourced figure)
+  source        String? // source reference, e.g. "amazon.in live page 2026-09-25"
+  value         Float // component value 0..1 used by the weight set (0.0..1.0)
+  capturedAt    DateTime    @default(now())
+  createdAt     DateTime    @default(now())
+
+  @@index([opportunityId, factor])
+  @@map("opportunity_evidence")
 }
 
 // --- Affiliate Engine, Phase-00 (Affiliate-05: link generator + click tracking) ---

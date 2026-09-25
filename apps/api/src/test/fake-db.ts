@@ -125,6 +125,7 @@ export function makeFakeDb(): FakeDbResult {
     create: async ({ data }: { data: Record<string, unknown> }): Promise<FakeRow> => {
       const row: FakeRow = { id: `${name}_${ensure(name).length + 1}`, ...withDefaults(name, data) };
       if (!("createdAt" in row)) row.createdAt = nextCreatedAt();
+      if (!("capturedAt" in row)) row.capturedAt = nextCreatedAt();
       ensure(name).push(row);
       return row;
     },
@@ -197,6 +198,7 @@ export function makeFakeDb(): FakeDbResult {
 
   const db = {
     opportunity: delegate("opportunity"),
+    opportunityEvidence: delegate("opportunityEvidence"),
     affiliateLink: delegate("affiliateLink"),
     affiliateLinkClick: delegate("affiliateLinkClick"),
     contentAsset: delegate("contentAsset"),

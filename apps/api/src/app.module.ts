@@ -8,6 +8,7 @@ import { ContentAssetModule } from "./content-assets/content-asset.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
 import { RevenueModule } from "./revenue/revenue.module";
 import { BossModule } from "./boss/boss.module";
+import { OpportunityIntelligenceModule } from "./opportunity-intelligence/opportunity-intelligence.module";
 import { ApiKeyGuard } from "./security/api-key.guard";
 import { RateLimitGuard } from "./security/rate-limit.guard";
 
@@ -15,6 +16,7 @@ import { RateLimitGuard } from "./security/rate-limit.guard";
   imports: [
     DatabaseModule,
     OpportunityModule,
+    OpportunityIntelligenceModule,
     AffiliateModule,
     ContentAssetModule,
     DashboardModule,
