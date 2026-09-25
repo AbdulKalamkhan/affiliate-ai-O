@@ -34,7 +34,23 @@ REUSABLE: YES
 DATE: 2026-09-22
 CONTEXT: Campaign #3 (dhruvs-nazariya-anklet-c3, B08BG1HC7R) — post-creation state
 EXPECTED: N/A (state record)
-ACTUAL: Campaign #3 is currently UNPUBLISHED (published=false, disclosureAdded=true) with ZERO clicks/conversions/revenue. Recorded price ₹1,424 is point-in-time, not a current guarantee. Commission percentage and commission outcome REMAIN UNKNOWN until supported by provider/network evidence.
-EVIDENCE QUALITY: FACT
+ACTUAL: Campaign #3 was created UNPUBLISHED (published=false, disclosureAdded=true) with ZERO clicks/conversions/revenue. Recorded price ₹1,424 is point-in-time, not a current guarantee. Commission percentage and commission outcome REMAIN UNKNOWN until supported by provider/network evidence.
+EVIDENCE QUALITY: FACT (superseded 2026-09-25 by publication — see next entry)
 LESSON: Do not treat recorded price or commission as current/verified; keep published=false until separate explicit Owner publication approval; Phase-00 money gate is NOT passed without a real click → conversion → commission.
+REUSABLE: YES
+
+DATE: 2026-09-25
+CONTEXT: Campaign #3 (dhruvs-nazariya-anklet-c3, B08BG1HC7R) — publication recorded + live traffic
+EXPECTED: Publication record + monitoring
+ACTUAL: Owner executed authenticated PATCH → published=true (verified by Owner read-back); Pin live https://pin.it/7resx0jwa (canonical Pin ID UNKNOWN — not invented); REAL Pinterest-attributed clicks=4, conversions=0, revenue ₹0, commission UNKNOWN. PublishedAssets=1. Money watch mode starts.
+EVIDENCE QUALITY: FACT (production read-back); external Pin verification read-only PASS via rendered pin.it page; canonical Pin ID NOT AVAILABLE.
+LESSON: Clicks alone do NOT satisfy Phase-00 — real conversion + commission evidence required. No test clicks. No Campaign #4 without evidence.
+REUSABLE: YES
+
+DATE: 2026-09-25
+CONTEXT: Click-detail visibility for Campaign #3
+EXPECTED: Verify the 4 click records read-only
+ACTUAL: NO read-only click-record endpoint exists (dashboard/affiliate-links expose aggregate counts only; `AffiliateLinkClick` rows with id/timestamp are never serialized). Agent-side authenticated GET is impossible without API_KEY (fail-closed 401).
+EVIDENCE QUALITY: FACT
+LESSON: Click-level detail requires a future authenticated endpoint or direct DB query; do not create endpoints/schema changes during money-watch without Owner request.
 REUSABLE: YES

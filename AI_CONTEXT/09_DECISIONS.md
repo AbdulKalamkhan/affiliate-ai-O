@@ -80,3 +80,14 @@ DATE: 2026-09-22
 DECISION: Do not treat the recorded ₹1,424 price as permanently current (point-in-time listing observation). Do not mark Phase-00 as passed until a real click → conversion → commission is verified.
 REASON: Prices fluctuate and commission %/outcome remain UNKNOWN without provider/network evidence.
 STATUS: ACTIVE
+
+DATE: 2026-09-25
+DECISION: Campaign #3 (dhruvs-nazariya-anklet-c3, B08BG1HC7R) is fully published and LIVE (published=true, publishedAssets=1, 4 real Pinterest-attributed clicks). Enter MONEY WATCH MODE — primary objective is real Pinterest traffic → tracked click → Amazon visit → purchase → verified Associates conversion → commission evidence.
+REASON: Publication record closed via Owner-authenticated PATCH; real traffic observed. Phase-00 is NOT passed on clicks alone.
+ALTERNATIVES CONSIDERED: Optimizing/duplicating the campaign after only 4 clicks (rejected — no evidence basis); starting Campaign #4 (rejected — single-campaign experiment first).
+STATUS: ACTIVE
+
+DATE: 2026-09-25
+DECISION: Recorded Pinterest evidence is the pin.it short URL (https://pin.it/7resx0jwa); canonical Pin ID remains UNKNOWN and is NOT to be invented or inferred.
+REASON: Evidence rules forbid fabricating Pin IDs; pin.it short link does not expose the canonical /pin/<ID>/ path in accessible read-only data.
+STATUS: ACTIVE
