@@ -17,7 +17,7 @@
 - Typecheck: PASS — all 3 workspaces (@ai-os/web, @ai-os/api, @ai-os/database)
 - Lint: PASS — all 3 workspaces
 - Build: PASS — nest build + next build (production)
-- Tests: PASS — @ai-os/api jest: 7 suites / 56 tests (re-verified 2026-09-25 after security guard specs added 2026-09-20); database/web: no tests configured
+- Tests: PASS — @ai-os/api jest: 8 suites / 61 tests (re-verified 2026-09-25 after dashboard.service.spec.ts added, +5 tests covering the previously untested DashboardService; fake-db.ts upgraded with count/aggregate/_count/orderBy/take/include support); database/web: no tests configured
 - DB connectivity: PASS — migrations `20260913132220_init` + `20260913135814_add_opportunities_and_product_fields` + `20260913142055_add_content_assets_and_channel`; \dt shows affiliate_links, affiliate_link_clicks, content_assets, opportunities, revenue_events, profit_records, _prisma_migrations
 
 ## Phase 00 checklist (target: 1-2 weeks)
@@ -52,3 +52,5 @@
 2026-09-13 — TASK 6 (Pinterest manual-publishing wiring: `Channel` config enum, `content_assets` + disclosure/compliance gate; no API) + TASK 7 (dashboard: API `/dashboard/overview` + web `/dashboard`) done and verified live; 42 jest tests PASS; 12/12 Turbo tasks PASS
 
 2026-09-25 — COMPLETION AUDIT: everything re-verified. Tests 56/56 (7 suites) PASS; typecheck 3/3, lint 3/3, build 3/3 PASS; production /health 200 database=ok; unauth 401 fail-closed; click route 404-on-missing intact; no TODO/FIXME placeholders; git clean on main (ahead of origin 2 docs commits). Campaign #3 published (Pin live, 4 real Pinterest clicks, 0 conversions). Phase-00 BUSINESS gate BLOCKED on external Amazon Associates evidence (Owner action).
+
+2026-09-25 — THIRD AUTONOMOUS COMPLETION LOOP: added dashboard.service.spec.ts (5 tests) closing the last coverage gap (DashboardService.overview was the only untested service); fake-db.ts test-infra upgraded (count/aggregate/_count.select/orderBy/take/include.link, all Prisma query shapes the dashboard uses). Tests now 61/61 across 8 suites; typecheck 4/4, lint 3/3, build 3/3 PASS. No application-code change; Campaign #3 production state untouched; Phase-00 gate still BLOCKED on external Amazon Associates evidence.

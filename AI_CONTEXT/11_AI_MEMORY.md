@@ -62,3 +62,11 @@ ACTUAL: All gates green: tests 56/56 (7 suites), typecheck 3/3, lint 3/3, build 
 EVIDENCE QUALITY: FACT (executed gates + production read-only probes)
 LESSON: Phase-00 engineering is complete and production-verified; the money gate cannot be passed by any further engineering — it is BLOCKED_ON_EXTERNAL_EVIDENCE. Final state: ENGINEERING_COMPLETE=TRUE, PRODUCTION_STATE=VERIFIED, BUSINESS_GATE=BLOCKED_ON_EXTERNAL_EVIDENCE, MONEY_LOOP=INCOMPLETE, PHASE_00=NOT_PASSED. Owner must supply real Amazon Associates order/commission evidence.
 REUSABLE: YES
+
+DATE: 2026-09-25
+CONTEXT: THIRD AUTONOMOUS COMPLETION LOOP — closing the last dashboard coverage gap
+EXPECTED: Verify no remaining safe in-scope engineering work
+ACTUAL: Found DashboardService.overview (the Phase-00 money dashboard, 55 lines of real aggregation logic) had ZERO test coverage — the only service without a spec. Added dashboard.service.spec.ts (5 tests) covering empty zero-state, counts incl publishedAssets filter, clicks-by-channel aggregation, reconciled-only revenue + profit summing (pending/rejected correctly excluded), newest-5 ordering with embedded _count. Upgraded fake-db.ts test-infra to support count({where}), aggregate(_sum/where), findMany orderBy/take/select-with-_count/include.link. Gates re-run ALL PASS: api jest 61/61 (8 suites, +5), typecheck 4/4, lint 3/3, build 3/3. NO application-code change; NO schema/migration change; Campaign #3 production state untouched (still 4 clicks, 0 conversions, Phase-00 NOT PASSED).
+EVIDENCE QUALITY: FACT (executed gates; domain logic assertions)
+LESSON: "No remaining work" claims must be proven by coverage, not by reading — the dashboard (a Phase-00 deliverable) was untested until this loop; drive untested modules to green with faithful fake-DB specs before declaring completion. Fake-DB must mirror Prisma query shapes (_count, aggregate, include.link) to make such tests possible.
+REUSABLE: YES
