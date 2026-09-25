@@ -127,7 +127,13 @@ export class BossService {
   }
 
   async list() {
-    return this.client.bossCommand.findMany({ orderBy: { createdAt: "desc" } });
+    return this.client.bossCommand.findMany({
+      orderBy: { createdAt: "desc" },
+      include: {
+        plan: { include: { tasks: { include: { actions: true } } } },
+        auditLogs: { orderBy: { createdAt: "desc" } },
+      },
+    });
   }
 
   async get(id: string) {

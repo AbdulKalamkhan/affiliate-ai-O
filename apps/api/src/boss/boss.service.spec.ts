@@ -83,6 +83,23 @@ describe("BossService", () => {
     expect(list.map((c) => c.id)).toEqual([b.id, a.id]);
   });
 
+  it("list embeds the full plan tree + audit trail for the Command Center", async () => {
+    const { db } = makeFakeDb();
+    const service = new BossService(db);
+    const command = await service.create({ text: "analyze revenue" });
+    const listed = await service.list();
+    expect(listed).toHaveLength(1);
+    const row = listed[0];
+    expect(row.plan).not.toBeNull();
+    const plan = row.plan!;
+    expect(Array.isArray(plan.tasks)).toBe(true);
+    const firstTask = plan.tasks[0];
+    expect(Array.isArray(firstTask.actions)).toBe(true);
+    expect(firstTask.actions[0]).toMatchObject({ status: "proposed", permissionResult: expect.stringMatching(/granted|denied/) });
+    expect(Array.isArray(row.auditLogs)).toBe(true);
+    expect(row.auditLogs.length).toBeGreaterThan(0);
+  });
+
   it("throws 404 when getting a missing command", async () => {
     const { db } = makeFakeDb();
     const service = new BossService(db);

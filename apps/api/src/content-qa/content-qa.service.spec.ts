@@ -124,4 +124,42 @@ describe("ContentQaService", () => {
     expect(verdict.publishReady).toBe(false);
     expect(verdict.checks.find((c) => c.id === "disclosure_declared")!.pass).toBe(false);
   });
+
+  it("returns a deterministic content fingerprint on every evaluation", async () => {
+    const { db } = makeFakeDb();
+    const link = await db.affiliateLink.create({
+      data: { provider: "amazon-associates", destination: "https://www.amazon.in/dp/B08BG1HC7R?tag=x", channel: "PINTEREST" },
+    });
+    const asset = await db.contentAsset.create({
+      data: {
+        title: "925 Silver Nazariya Anklet",
+        description: "Disclosure: As an Amazon Associate I earn from qualifying purchases.",
+        linkId: link.id,
+        disclosureAdded: true,
+      },
+    });
+    const service = new ContentQaService(db);
+    const stored = await service.evaluate(asset.id);
+    expect(stored.fingerprint).toMatch(/^[0-9a-f]{32}$/);
+    // Prospective state evaluation of the same content yields the SAME fingerprint.
+    const prospective = await service.evaluateState({
+      id: asset.id,
+      title: asset.title,
+      description: asset.description,
+      published: false,
+      disclosureAdded: true,
+      destination: link.destination,
+    });
+    expect(prospective.fingerprint).toBe(stored.fingerprint);
+    // Content change → fingerprint change (near-duplicate/version detection).
+    const changedTitle = await service.evaluateState({
+      id: asset.id,
+      title: "Different Anklet Title",
+      description: asset.description,
+      published: false,
+      disclosureAdded: true,
+      destination: link.destination,
+    });
+    expect(changedTitle.fingerprint).not.toBe(stored.fingerprint);
+  });
 });

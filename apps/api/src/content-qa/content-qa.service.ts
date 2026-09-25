@@ -4,6 +4,7 @@ import { prisma } from "@ai-os/database";
 import type { DbClient } from "../db/db-client";
 import { DB_CLIENT } from "../db/tokens";
 import { evaluateContentQa } from "./content-qa.rules";
+import { fingerprintContent } from "./content-qa.fingerprint";
 
 // Asset state (current or prospective) that QA evaluates. `destination` is read
 // from the affiliate link so a non-Amazon destination fails the network gate.
@@ -18,6 +19,7 @@ export interface QaAssetRecord {
 
 export interface QaEvaluation {
   assetId: string;
+  fingerprint: string;
   verdict: ReturnType<typeof evaluateContentQa>;
 }
 
@@ -34,6 +36,12 @@ export class ContentQaService {
     });
     return {
       assetId: record.id,
+      fingerprint: fingerprintContent({
+        title: record.title,
+        description: record.description,
+        destination: record.destination,
+        disclosureAdded: record.disclosureAdded,
+      }),
       verdict: evaluateContentQa({
         title: record.title,
         description: record.description,
