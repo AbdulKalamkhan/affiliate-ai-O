@@ -86,3 +86,11 @@ ACTUAL: Found 4 real behavioral gaps and closed them: (1) AffiliateLinkService.l
 EVIDENCE QUALITY: FACT (executed gates + prod read-only probes + prisma validate)
 LESSON 1: "Untested public route" is a genuine residual gap even when everything else is green — audit by route→handler→spec trace, not by coverage headline. LESSON 2: A test fake that omits a real DB default (createdAt@now) silently weakens ordering assertions — fakes must mirror Prisma defaults, not just accepted query shapes. LESSON 3: A truly final loop is marked by finding only micro-gaps (branch coverage on defensive paths), after which remaining work is genuinely external (Amazon evidence). Do not fabricate further tasks.
 REUSABLE: YES
+
+DATE: 2026-09-25
+CONTEXT: SIXTH AUTONOMOUS COMPLETION LOOP — rate-limit identity spoofing
+EXPECTED: Final loop would find only micro-gaps; security already hardened across prior loops
+ACTUAL: Found a REAL P2 security weakness: RateLimitGuard derived per-client identity from the raw client-supplied `X-Forwarded-For` header (first value), so any client rotating a forged header each request could bypass the per-IP limit (60 GET / 10 mutate per window) entirely. Fixed readIp to prefer Express-computed `req.ip` (main.ts sets trust proxy=1) and only fall back to header parsing for requests without req.ip. Added spoof-resistance test: fixed req.ip + forged XFF still hits the limit (identity NOT reset by the spoofed header). Gates: api jest 72/72 (8 suites, +1), typecheck 4/4, lint 3/3, build 3/3 PASS; commit 9f1256e pushed, local==remote, tree clean.
+EVIDENCE QUALITY: FACT (reproduced bypass reasoning, verified fix behavior by test + full gates)
+LESSON 1: Never derive security-relevant identity (rate-limit keys, per-user state) from client-forgeable headers when the framework already resolves an authoritative value (Express req.ip under trust proxy). Header parse should be a fallback only. LESSON 2: Header-shape tests (string/comma/array) passing ≠ spoof-safe; a dedicated adversarial identity test is required. LESSON 3: Even an "everything is green" final loop can surface a genuine defect — re-audit with an adversarial mindset, not just coverage numbers.
+REUSABLE: YES
