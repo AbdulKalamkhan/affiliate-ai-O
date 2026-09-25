@@ -39,6 +39,14 @@ const toNumber = (value: unknown): number => {
 export function makeFakeDb(): FakeDbResult {
   const rows: Record<string, FakeRow[]> = {};
   const ensure = (name: string): FakeRow[] => (rows[name] ??= []);
+  // Monotonic clock so back-to-back creates get strictly increasing createdAt —
+  // mirrors real Prisma inserts hitting separate transactions (at least 1ms apart)
+  // and keeps orderBy createdAt assertions deterministic instead of same-ms flaky.
+  let clock = 0;
+  const nextCreatedAt = (): Date => {
+    clock = Math.max(clock + 1, Date.now());
+    return new Date(clock);
+  };
 
   const DEFAULTS: Record<string, Record<string, unknown>> = {
     contentAsset: { published: false, disclosureAdded: false },
@@ -71,13 +79,52 @@ export function makeFakeDb(): FakeDbResult {
         return { ...row, profitRecord: profit ?? null };
       });
     }
+    if (name === "bossPlan") {
+      return rowsList.map((row) => {
+        const withActions = (task: FakeRow) => ({
+          ...task,
+          actions: ensure("bossAction").filter((a) => a.taskId === task.id),
+        });
+        return { ...row, tasks: ensure("bossTask").filter((t) => t.planId === row.id).map(withActions) };
+      });
+    }
+    if (name === "bossTask") {
+      return rowsList.map((row) => ({
+        ...row,
+        actions: ensure("bossAction").filter((a) => a.taskId === row.id),
+      }));
+    }
+    if (name === "bossCommand") {
+      return rowsList.map((row) => {
+        const plan = ensure("bossPlan").find((p) => p.commandId === row.id);
+        const withActions = (task: FakeRow) => ({
+          ...task,
+          actions: ensure("bossAction").filter((a) => a.taskId === task.id),
+        });
+        const state: FakeRow = { ...row };
+        if (include.plan) {
+          state.plan = plan
+            ? { ...plan, tasks: ensure("bossTask").filter((t) => t.planId === plan.id).map(withActions) }
+            : null;
+        }
+        if (include.auditLogs) {
+          state.auditLogs = ensure("bossAuditLog")
+            .filter((a) => a.commandId === row.id)
+            .sort(
+              (a, b) =>
+                new Date(b.createdAt as Date).getTime() - new Date(a.createdAt as Date).getTime(),
+            );
+        }
+        return state;
+      });
+    }
     return rowsList;
   };
 
   const delegate = (name: string) => ({
     create: async ({ data }: { data: Record<string, unknown> }): Promise<FakeRow> => {
       const row: FakeRow = { id: `${name}_${ensure(name).length + 1}`, ...withDefaults(name, data) };
-      if (!("createdAt" in row)) row.createdAt = new Date();
+      if (!("createdAt" in row)) row.createdAt = nextCreatedAt();
       ensure(name).push(row);
       return row;
     },
@@ -155,6 +202,11 @@ export function makeFakeDb(): FakeDbResult {
     contentAsset: delegate("contentAsset"),
     revenueEvent: delegate("revenueEvent"),
     profitRecord: delegate("profitRecord"),
+    bossCommand: delegate("bossCommand"),
+    bossPlan: delegate("bossPlan"),
+    bossTask: delegate("bossTask"),
+    bossAction: delegate("bossAction"),
+    bossAuditLog: delegate("bossAuditLog"),
   } as unknown as DbClient;
 
   return { db, rows };

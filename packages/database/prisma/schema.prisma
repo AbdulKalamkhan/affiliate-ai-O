@@ -134,3 +134,80 @@ model ProfitRecord {
   @@index([sourceType, recordedAt])
   @@map("profit_records")
 }
+
+// --- Boss / AI CEO Core, Phase-01 (Foundation + AI CEO Core) ---
+// Owner command intake → structured, auditable PLAN. Per phase-01 gate, safe Owner
+// commands produce a structured auditable plan WITHOUT external execution. Actions
+// are always stored as proposals (status "proposed"); the global API-key guard +
+// per-tool autonomy check decide whether they COULD run — nothing executes here.
+
+model BossCommand {
+  id            String          @id @default(cuid())
+  text          String          // owner command text
+  autonomyLevel Int             @default(2) // CEO operating model: 0 observe .. 5 controlled; default 2 = prepare drafts/plans
+  status        String          @default("received") // received -> planned (never "executed" in Phase-01)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  plan          BossPlan?
+  auditLogs     BossAuditLog[]
+
+  @@index([createdAt])
+  @@map("boss_commands")
+}
+
+model BossPlan {
+  id        String      @id @default(cuid())
+  commandId String      @unique
+  command   BossCommand @relation(fields: [commandId], references: [id], onDelete: Cascade)
+  objective String
+  status    String      @default("planned") // planned only in Phase-01 — no external execution
+  tasks     BossTask[]
+  createdAt DateTime    @default(now())
+
+  @@index([createdAt])
+  @@map("boss_plans")
+}
+
+model BossTask {
+  id        String      @id @default(cuid())
+  planId    String
+  plan      BossPlan    @relation(fields: [planId], references: [id], onDelete: Cascade)
+  order     Int
+  title     String
+  status    String      @default("planned")
+  actions   BossAction[]
+  createdAt DateTime    @default(now())
+
+  @@index([planId, order])
+  @@map("boss_tasks")
+}
+
+model BossAction {
+  id               String   @id @default(cuid())
+  taskId           String
+  task             BossTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tool             String   // typed tool contract name (see apps/api/src/boss/tools.ts)
+  input            Json     // typed tool input payload
+  autonomyLevel    Int      @default(2) // autonomy level the command was evaluated at
+  requiredAutonomy Int      @default(2) // tool contract's required autonomy level
+  permissionResult String   @default("granted") // granted | denied (autonomy check)
+  status           String   @default("proposed") // proposed only — Phase-01 never executes
+  createdAt        DateTime @default(now())
+
+  @@index([taskId])
+  @@map("boss_actions")
+}
+
+model BossAuditLog {
+  id        String       @id @default(cuid())
+  commandId String
+  command   BossCommand  @relation(fields: [commandId], references: [id], onDelete: Cascade)
+  entityType String      // command | plan | task | action
+  entityId  String
+  verb      String       // created | planned | permission_checked | denied
+  detail    Json?
+  createdAt DateTime     @default(now())
+
+  @@index([commandId, createdAt])
+  @@map("boss_audit_logs")
+}

@@ -23,6 +23,22 @@ Gate: real click → conversion → commission tracked once, with evidence
 
 ---
 
+**Gate report — 2026-09-25 (Phase-01 Boss core, Owner override)**
+PHASE: 01 — Foundation & AI CEO Core
+Objective: safe Owner command produces a structured, auditable plan WITHOUT external execution
+Repository evidence: apps/api/src/boss/ (boss-tools.ts typed tool contracts, boss-plan-generator.ts deterministic classifier + permission evaluation, boss.service.ts command→plan→audit flow, boss.controller.ts POST/GET/PATCH/DELETE, boss.module.ts), app.module.ts (BossModule wired, APP_GUARD intact), prisma schema (additive BossCommand/BossPlan/BossTask/BossAction/BossAuditLog), migration 20260925123000_add_boss_core, db-client.ts + fake-db.ts (boss delegates + includes)
+Changes made: implemented Phase-01 Boss core — Owner command intake → deterministic structured plan (objective + ordered tasks + typed action proposals) with per-action autonomy permission checks (granted/denied recorded), audit-log trail (created/planned/permission_checked), commands flip received→planned, actions are PROPOSED-only (nothing executes). Additive migration (5 tables). All routes fail-closed behind global API-key guard + rate limit.
+Tests: PASS (97/97, 10 suites; +9 boss)   Typecheck: PASS (4/4)   Lint: PASS (3/3)
+Build: PASS (3/3)   Database: PASS (prisma validate; additive migration 20260925123000_add_boss_core)
+Security: PASS (new /boss/* routes protected by APP_GUARD by default — no @Public; autonomy permission checks enforced in service; no external execution in Phase-01)
+Amazon compliance check: N/A engineering. No conversion/commission evidence supplied — nothing recorded, NOTHING fabricated. Phase-00 unchanged (BLOCKED, 4 clicks, 0 conversions, revenue ₹0, profit ₹0).
+Regression: PASS (all prior 88 tests still green)
+Memory updated: YES (03, 05, 06, 09, 10, 11, MASTER)
+Evidence recorded: YES (tests + this report; Phase-00 state untouched — no evidence fabricated, no money recorded)
+Final gate: IN PROGRESS — Phase-01 command→plan core COMPLETE + TESTED (gate "safe command → structured auditable plan without external execution" satisfied). Boss approval/permission/memory scaffolding (boss_approvals, boss_permissions, boss_memory, boss_tool_calls, boss_decisions) deferred to later Boss phases. Proceeding per Owner override; Phase-00 REMAINS BLOCKED on external Amazon Associates evidence.
+
+---
+
 **Gate report — 2026-09-25 (completion audit entry)**
 PHASE: 00 — Money-First MVP
 Objective: money loop live end-to-end (real click → conversion → commission) — final gate

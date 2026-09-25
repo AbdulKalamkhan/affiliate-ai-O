@@ -115,3 +115,15 @@ DECISION: `GET /revenue-events/:id` includes the linked ProfitRecord (source, gr
 REASON: ProfitRecords previously existed only as an aggregate dashboard sum — the per-event auditable breakdown (gross/fee/cost/net + evidence source) was unreachable read-only, leaving the Phase-00 "AUDIT TRAIL" lifecycle step incomplete.
 ALTERNATIVES CONSIDERED: Separate GET /profit-records listing endpoint (rejected — a dedicated endpoint adds surface without new capability; the relation already links them 1:1 via revenueEventId).
 STATUS: ACTIVE
+
+DATE: 2026-09-25
+DECISION: OWNER EXPLICIT OVERRIDE — begin PHASE-01 engineering (Foundation & AI CEO Core) NOW, BEFORE the Phase-00 business gate passes. The override authorizes Phase-01 engineering to start; it does NOT relax Phase-00 evidence rules. Phase-00 stays BLOCKED (4 clicks, 0 conversions, revenue ₹0, profit ₹0) until real Amazon Associates conversion→verified-commission evidence is supplied. No evidence fabricated; no Campaign #4.
+REASON: Owner explicitly instructed Phase-01 to proceed in parallel with the still-blocked Phase-00 money gate, per the CEO operating model's "prepare drafts/plans" autonomy.
+ALTERNATIVES CONSIDERED: Waiting until Phase-00 passes (previous default, superseded by this override); skipping Phase-01 entirely (rejected — Owner authorized it).
+STATUS: ACTIVE
+
+DATE: 2026-09-25
+DECISION: Phase-01 Boss core implementation is MINIMAL and DETERMINISTIC: (1) typed tool contracts in code (boss-tools.ts — each tool declares requiredAutonomyLevel 0–5; per CEO operating model default 2 = prepare drafts/plans); (2) rule-based intent classification (boss-plan-generator.ts — keyword table, no LLM/network); (3) commands always produce structured auditable plans whose actions are stored as PROPOSALS (status "proposed", permissionResult granted/denied) — Phase-01 NEVER executes a tool; (4) additive Boss models (BossCommand/BossPlan/BossTask/BossAction/BossAuditLog) + migration 20260925123000_add_boss_core; (5) BossModule routes fail-closed behind the global API-key guard + rate limit.
+REASON: Phase-01 gate = "safe Owner command produces a structured, auditable plan without external execution". Deterministic generation + proposed-only actions satisfy the gate while preserving the security boundary (AI → Tool → Permission Check → Validation → Service → DB) and avoiding new runtime dependencies (no Ollama/LLM wiring in Phase-01).
+ALTERNATIVES CONSIDERED: LLM-driven planning at Phase-01 (rejected — no AI provider configured, adds nondeterminism + dependency, gate needs deterministic auditable plan); external-execution-enabled actions at default autonomy (rejected — violates autonomy-2 = propose-only and the phase gate).
+STATUS: ACTIVE
