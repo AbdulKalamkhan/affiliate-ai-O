@@ -25,3 +25,23 @@ services:
         sync: false
       - key: DATABASE_URL
         sync: false
+
+  # Frontend (Next.js SSR) — read-only dashboards (home, /dashboard,
+  # /command-center). Renders server-side; the API key stays server-side and is
+  # NEVER sent to the browser.
+  - type: web
+    runtime: node
+    name: ai-os-web
+    plan: free
+    buildCommand: >-
+      npm ci &&
+      npx turbo run build --filter=@ai-os/web...
+    startCommand: >-
+      npm run start --workspace @ai-os/web -- -H 0.0.0.0 -p $PORT
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: API_BASE_URL
+        value: https://ai-os-api-1eck.onrender.com
+      - key: API_KEY
+        sync: false
