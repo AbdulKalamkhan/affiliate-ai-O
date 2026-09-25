@@ -1,8 +1,15 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  UnprocessableEntityException,
+} from "@nestjs/common";
 import { Inject } from "@nestjs/common";
 import { prisma } from "@ai-os/database";
 import type { DbClient } from "../db/db-client";
 import { DB_CLIENT } from "../db/tokens";
+import { ContentQaService } from "../content-qa/content-qa.service";
+import { isPreApprovedPublishAsset } from "../content-qa/content-qa.rules";
 
 export interface CreateContentAssetInput {
   title: string;
@@ -23,7 +30,10 @@ const LINK_INCLUDE = {
 
 @Injectable()
 export class ContentAssetService {
-  constructor(@Inject(DB_CLIENT) private readonly client: DbClient = prisma as DbClient) {}
+  constructor(
+    @Inject(DB_CLIENT) private readonly client: DbClient = prisma as DbClient,
+    private readonly qa: ContentQaService,
+  ) {}
 
   private async assertLinkExists(linkId: string) {
     const link = await this.client.affiliateLink.findUnique({ where: { id: linkId } });
@@ -70,6 +80,8 @@ export class ContentAssetService {
     }
     const title = input.title !== undefined ? input.title.trim() : asset.title;
     const disclosure = input.disclosureAdded ?? asset.disclosureAdded;
+    const description =
+      input.description !== undefined ? (input.description?.trim() || null) : asset.description;
 
     // Amazon/FTC compliance gate: disclosure must be present before publishing
     // (17_AMAZON_COMPLIANCE.md, SOC-04 content QA).
@@ -88,6 +100,29 @@ export class ContentAssetService {
       throw new BadRequestException("disclosure cannot be removed while the asset is published");
     }
 
+    // QA-01 approval gate (Phase-04, safe enforcement): a FRESH unpublished→published
+    // transition must pass BOTH QA gates on the prospective state — unless the asset was
+    // published before the QA engine existed (pre-approved, e.g. live Campaign #3), so the
+    // gate can never block the running campaign. Re-affirming publish on an already-live
+    // asset is a no-op and is never gated.
+    const transitioningToPublished = input.published === true && !asset.published;
+    if (transitioningToPublished && !isPreApprovedPublishAsset(asset.id)) {
+      const { verdict } = await this.qa.evaluateState({
+        id: asset.id,
+        title,
+        description,
+        published: true,
+        disclosureAdded: disclosure,
+        destination: asset.link?.destination ?? "",
+      });
+      if (!verdict.publishReady) {
+        throw new UnprocessableEntityException({
+          message: "content asset is not publish-ready (QA-01): both QA gates must pass",
+          verdict,
+        });
+      }
+    }
+
     const willBePublished = input.published ?? asset.published;
     const publishedAt =
       !asset.published && willBePublished ? new Date() : willBePublished ? asset.publishedAt : null;
@@ -96,7 +131,7 @@ export class ContentAssetService {
       where: { id },
       data: {
         ...(input.title !== undefined ? { title } : {}),
-        ...(input.description !== undefined ? { description: input.description?.trim() || null } : {}),
+        ...(input.description !== undefined ? { description: description || null } : {}),
         ...(input.published !== undefined ? { published: input.published } : {}),
         ...(input.disclosureAdded !== undefined ? { disclosureAdded: input.disclosureAdded } : {}),
         ...(publishedAt !== asset.publishedAt ? { publishedAt } : {}),
