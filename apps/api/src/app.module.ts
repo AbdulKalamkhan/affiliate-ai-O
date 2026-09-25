@@ -10,6 +10,7 @@ import { RevenueModule } from "./revenue/revenue.module";
 import { BossModule } from "./boss/boss.module";
 import { OpportunityIntelligenceModule } from "./opportunity-intelligence/opportunity-intelligence.module";
 import { ContentQaModule } from "./content-qa/content-qa.module";
+import { CampaignAnalyticsModule } from "./campaign-analytics/campaign-analytics.module";
 import { ApiKeyGuard } from "./security/api-key.guard";
 import { RateLimitGuard } from "./security/rate-limit.guard";
 
@@ -23,6 +24,7 @@ import { RateLimitGuard } from "./security/rate-limit.guard";
     ContentQaModule,
     DashboardModule,
     RevenueModule,
+    CampaignAnalyticsModule,
     BossModule,
   ],
   controllers: [HealthController],
