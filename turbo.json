@@ -19,6 +19,9 @@
     },
     "@ai-os/web#test": {
       "outputs": []
+    },
+    "@ai-os/database#test": {
+      "outputs": []
     }
   }
 }
