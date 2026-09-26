@@ -188,3 +188,10 @@ ACTUAL: Shipped globals.css design system + _ui/ui.tsx server components + rewri
 EVIDENCE QUALITY: FACT (gates green, build routes list /, /campaigns, /command-center, /dashboard, local smoke 200s + leak scan)
 LESSON 1: A server-component glass UI can carry the full premium look with ZERO client JS and NO secrets on the page: keep API_KEY at module scope, pass nothing to client components, and let SSR fetch with Bearer. LESSON 2: Honest empty states ('No conversions yet', 'Awaiting Amazon Associates evidence', 'Awaiting data') read as premium, not broken - fabricating zeros for unknown values is the real failure. LESSON 3: A sync:false secret on Render means the page must be built to degrade gracefully until the Owner pastes the value; never embed or log it.
 REUSABLE: YES
+
+CONTEXT: LIVE-DATA E2E after Owner set API_KEY on ai-os-web
+EXPECTED: Deployed glass UI shows real production data end-to-end
+ACTUAL: Verified 2026-09-26 - all 4 routes 200, leak=False, no fallback banners. Dashboard renders Campaign #3 live (4 clicks, 0 conversions, Rs0.00/0, Active campaigns=1, providers 2/6). Command Center Commands=0 -> truthful 'No owner commands yet' empty state. Campaigns page: 1 campaign dhruvs-nazariya-anklet-c3, clicks 4, conversions 0, 0.00% close, Rs0 revenue/profit. api /health 200 database=ok. Phase-00 TRUTHFULLY BLOCKED at 4 clicks/0 conversions.
+EVIDENCE QUALITY: FACT (rendered HTML extraction + /health probe)
+LESSON: A premium UI is complete when the honest empty states ('No owner commands yet', 'No revenue recorded', 'Awaiting data') render from a live authenticated feed - not when numbers are invented to fill them.
+REUSABLE: YES
