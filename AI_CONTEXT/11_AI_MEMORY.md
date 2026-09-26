@@ -195,3 +195,10 @@ ACTUAL: Verified 2026-09-26 - all 4 routes 200, leak=False, no fallback banners.
 EVIDENCE QUALITY: FACT (rendered HTML extraction + /health probe)
 LESSON: A premium UI is complete when the honest empty states ('No owner commands yet', 'No revenue recorded', 'Awaiting data') render from a live authenticated feed - not when numbers are invented to fill them.
 REUSABLE: YES
+
+CONTEXT: AUTONOMOUS AUDIT-FIX pass (postcss advisories, hygiene, README)
+EXPECTED: Close every safe local gap; keep production green; no breaking upgrades
+ACTUAL: postcss 8.4.31 (next-pinned) carries 4 high CVEs (CSS stringify XSS + source-map file read) - closed via root overrides->8.5.28 (same 8.x) + devDep; verified by full turbo 12/12 + npm ci --dry-run + identical web build. deepmerge-ts 7.1.5 (3 high, via prisma @prisma/config) left as documented residual: prisma's range excludes 8.0 (the fix) -> needs prisma 7/8 major = breaking, out of scope; no practical attack (static repo config). Added .gitignore entries (.kilo/, db/backups/) - db/backups holds pg dumps with MONEY records, must never reach git. Added root README.md. Prod re-verified (health 200, 401 fail-closed x4, /nope 404, click-nope 404 public). Phase-00 unchanged BLOCKED (4/0/Rs0/Rs0).
+EVIDENCE QUALITY: FACT (gates, npm ci --dry-run, prod probes)
+LESSON 1: npm overrides on an EXISTING lockfile can silently not apply - removing the stale package folder + installing a direct (dev)dep with the same version will force the lock entry to converge; always re-run npm ci --dry-run (Render uses npm ci) and the full gate set before committing. LESSON 2: classify audit flags before chasing them - build-time tooling vulnerabilities on trusted inputs are not the same class as runtime exposure; a MAJOR bump (next 16 / prisma 7-8) to silence an advisory is a WORSE change than the advisory.
+REUSABLE: YES
