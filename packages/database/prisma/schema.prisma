@@ -172,6 +172,8 @@ model BossCommand {
   updatedAt     DateTime        @updatedAt
   plan          BossPlan?
   auditLogs     BossAuditLog[]
+  decisions     BossDecision[]
+  lessons       BossLesson[]
 
   @@index([createdAt])
   @@map("boss_commands")
@@ -213,23 +215,309 @@ model BossAction {
   autonomyLevel    Int      @default(2) // autonomy level the command was evaluated at
   requiredAutonomy Int      @default(2) // tool contract's required autonomy level
   permissionResult String   @default("granted") // granted | denied (autonomy check)
-  status           String   @default("proposed") // proposed only — Phase-01 never executes
+  status           String   @default("proposed") // proposed -> approval_required -> approved -> executed | failed | denied
   createdAt        DateTime @default(now())
 
+  approvals    BossApproval[]
+  toolCalls    BossToolCall[]
+  lessons      BossLesson[]
+
   @@index([taskId])
+  @@index([status, createdAt])
   @@map("boss_actions")
 }
 
 model BossAuditLog {
   id        String       @id @default(cuid())
-  commandId String
-  command   BossCommand  @relation(fields: [commandId], references: [id], onDelete: Cascade)
-  entityType String      // command | plan | task | action
+  commandId String?
+  command   BossCommand? @relation(fields: [commandId], references: [id], onDelete: Cascade)
+  entityType String      // command | plan | task | action | approval | tool_call | decision | lesson
   entityId  String
-  verb      String       // created | planned | permission_checked | denied
+  verb      String       // created | planned | permission_checked | denied | requested | approved | ...
+  actor     String?      // who caused the transition (e.g. "owner", "executor"); null = system/unknown
   detail    Json?
   createdAt DateTime     @default(now())
 
   @@index([commandId, createdAt])
+  @@index([entityType, createdAt])
   @@map("boss_audit_logs")
+}
+// --- Boss Approvals (HITL) ---
+model BossApproval {
+  id           String   @id @default(cuid())
+  actionId     String
+  action       BossAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  status       String   @default("pending") // pending | approved | rejected | expired
+  reason       String?
+  decidedBy    String?
+  decidedAt    DateTime?
+  expiresAt    DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  @@index([actionId, status])
+  @@map("boss_approvals")
+}
+
+model BossToolCall {
+  id           String   @id @default(cuid())
+  actionId     String
+  action       BossAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  tool         String
+  input        Json
+  output       Json?
+  status       String   @default("pending")
+  error        String?
+  durationMs   Int?
+  executedAt   DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  @@index([actionId, status])
+  @@index([tool, createdAt])
+  @@map("boss_tool_calls")
+}
+
+model BossDecision {
+  id           String   @id @default(cuid())
+  commandId    String?
+  command      BossCommand? @relation(fields: [commandId], references: [id], onDelete: SetNull)
+  decision     String
+  rationale    String
+  factors      Json?
+  confidence   Decimal? @db.Decimal(4, 2)
+  outcome      String?
+  executed     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  lessons      BossLesson[]
+  @@index([commandId, createdAt])
+  @@map("boss_decisions")
+}
+
+model BossMemory {
+  id           String   @id @default(cuid())
+  key          String   @unique
+  kind         String
+  value        Json
+  weight       Decimal  @db.Decimal(6, 3) @default(1.0)
+  confidence   Decimal? @db.Decimal(4, 2)
+  source       String?
+  tags         Json?
+  lastSeenAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  @@index([kind, lastSeenAt])
+  @@map("boss_memory")
+}
+model BossLesson {
+  id           String   @id @default(cuid())
+  decisionId   String?
+  decision     BossDecision? @relation(fields: [decisionId], references: [id], onDelete: SetNull)
+  commandId    String?
+  command      BossCommand? @relation(fields: [commandId], references: [id], onDelete: SetNull)
+  actionId     String?
+  action       BossAction? @relation(fields: [actionId], references: [id], onDelete: SetNull)
+  prediction   String?
+  actual       String?
+  success      Boolean?
+  lesson       String
+  tags         Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  @@index([success, createdAt])
+  @@map("boss_lessons")
+}
+// --- Marketplace/Seller Foundation (additive, not yet connected) ---
+enum SellerPlatform {
+  AMAZON_SELLER
+  FLIPKART_SELLER
+  MEESHO_SUPPLIER
+}
+
+model SellerAccount {
+  id           String         @id @default(cuid())
+  platform     SellerPlatform
+  displayName  String
+  externalId   String?
+  status       String         @default("inactive")
+  connected    Boolean        @default(false)
+  lastSyncAt   DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  permissions  SellerPermission[]
+  listings     SellerListing[]
+  inventories  SellerInventory[]
+  orders       SellerOrder[]
+  returns      SellerReturn[]
+  settlements  SellerSettlement[]
+  @@index([platform, status])
+  @@map("seller_accounts")
+}
+
+model SellerPermission {
+  id           String        @id @default(cuid())
+  sellerId     String
+  seller       SellerAccount @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  permission   String
+  granted      Boolean       @default(false)
+  expiresAt    DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  @@index([sellerId, granted])
+  @@map("seller_permissions")
+}
+
+model Product {
+  id           String           @id @default(cuid())
+  sku          String?          @unique
+  title        String
+  description  String?          @db.Text
+  brand        String?
+  category     String?
+  costPrice    Decimal?         @db.Decimal(12, 2)
+  currency     String           @default("INR")
+  source       String           @default("manual")
+  active       Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  variants     ProductVariant[]
+  listings     SellerListing[]
+  inventories  SellerInventory[]
+  @@index([sku, active])
+  @@map("products")
+}
+
+model ProductVariant {
+  id           String   @id @default(cuid())
+  productId    String
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku          String?  @unique
+  title        String?
+  attributes   Json?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  @@index([productId, active])
+  @@map("product_variants")
+}
+
+model SellerListing {
+  id           String        @id @default(cuid())
+  sellerId     String
+  seller       SellerAccount @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  productId    String?
+  product      Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
+  externalId   String?
+  platform     SellerPlatform
+  status       String        @default("draft")
+  title        String
+  description  String?       @db.Text
+  bullets      Json?
+  attributes   Json?
+  price        Decimal?      @db.Decimal(12, 2)
+  currency     String        @default("INR")
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  versions     SellerListingVersion[]
+  @@index([sellerId, platform, status])
+  @@map("seller_listings")
+}
+
+model SellerListingVersion {
+  id           String        @id @default(cuid())
+  listingId    String
+  listing      SellerListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  version      Int
+  payload      Json
+  status       String        @default("draft")
+  externalId   String?
+  notes        String?
+  createdAt    DateTime      @default(now())
+  @@unique([listingId, version])
+  @@map("seller_listing_versions")
+}
+
+model SellerInventory {
+  id           String        @id @default(cuid())
+  sellerId     String
+  seller       SellerAccount @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  productId    String?
+  product      Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
+  sku          String?
+  availableQty Int           @default(0)
+  reservedQty  Int           @default(0)
+  soldQty      Int           @default(0)
+  currency     String        @default("INR")
+  updatedAt    DateTime      @updatedAt
+  createdAt    DateTime      @default(now())
+  @@index([sellerId, sku])
+  @@map("seller_inventories")
+}
+
+model SellerOrder {
+  id           String        @id @default(cuid())
+  sellerId     String
+  seller       SellerAccount @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  externalId   String
+  platform     SellerPlatform
+  status       String        @default("pending")
+  totalAmount  Decimal       @db.Decimal(12, 2)
+  currency     String        @default("INR")
+  raw          Json?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  items        SellerOrderItem[]
+  @@unique([platform, externalId])
+  @@index([sellerId, status, createdAt])
+  @@map("seller_orders")
+}
+
+model SellerOrderItem {
+  id           String      @id @default(cuid())
+  orderId      String
+  order        SellerOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sku          String?
+  title        String
+  quantity     Int
+  unitPrice    Decimal     @db.Decimal(12, 2)
+  currency     String      @default("INR")
+  totalPrice   Decimal     @db.Decimal(12, 2)
+  @@map("seller_order_items")
+}
+
+model SellerReturn {
+  id           String        @id @default(cuid())
+  sellerId     String
+  seller       SellerAccount @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  orderId      String?
+  externalId   String?
+  platform     SellerPlatform
+  status       String        @default("requested")
+  amount       Decimal       @db.Decimal(12, 2)
+  currency     String        @default("INR")
+  reason       String?
+  raw          Json?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  @@index([sellerId, status])
+  @@map("seller_returns")
+}
+
+model SellerSettlement {
+  id           String        @id @default(cuid())
+  sellerId     String
+  seller       SellerAccount @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  externalId   String?
+  platform     SellerPlatform
+  status       String        @default("pending")
+  totalAmount  Decimal       @db.Decimal(12, 2)
+  fees         Decimal       @default(0) @db.Decimal(12, 2)
+  refunds      Decimal       @default(0) @db.Decimal(12, 2)
+  netAmount    Decimal       @db.Decimal(12, 2)
+  currency     String        @default("INR")
+  periodStart  DateTime?
+  periodEnd    DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  @@index([sellerId, status])
+  @@map("seller_settlements")
 }

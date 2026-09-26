@@ -23,8 +23,39 @@ interface AggregateOptions {
   _sum?: Record<string, unknown>;
 }
 
-const matches = (row: FakeRow, where?: Record<string, unknown>): boolean => {
-  if (!where) return true;
+/** Every table the fake Prisma client exposes — used to pre-create buckets. */
+const DELEGATE_NAMES = {
+  opportunity: 1,
+  opportunityEvidence: 1,
+  affiliateLink: 1,
+  affiliateLinkClick: 1,
+  contentAsset: 1,
+  revenueEvent: 1,
+  profitRecord: 1,
+  bossCommand: 1,
+  bossPlan: 1,
+  bossTask: 1,
+  bossAction: 1,
+  bossAuditLog: 1,
+  bossApproval: 1,
+  bossToolCall: 1,
+  bossDecision: 1,
+  bossMemory: 1,
+  bossLesson: 1,
+  sellerAccount: 1,
+  sellerPermission: 1,
+  product: 1,
+  productVariant: 1,
+  sellerListing: 1,
+  sellerListingVersion: 1,
+  sellerInventory: 1,
+  sellerOrder: 1,
+  sellerOrderItem: 1,
+  sellerReturn: 1,
+  sellerSettlement: 1,
+} as const;
+
+const matches = (row: FakeRow, where?: Record<string, unknown>): boolean => {  if (!where) return true;
   return Object.entries(where).every(([key, value]) => row[key] === value);
 };
 
@@ -94,6 +125,32 @@ export function makeFakeDb(): FakeDbResult {
         actions: ensure("bossAction").filter((a) => a.taskId === row.id),
       }));
     }
+    if (name === "bossAction") {
+      return rowsList.map((row) => ({
+        ...row,
+        approvals: ensure("bossApproval").filter((a) => a.actionId === row.id),
+        toolCalls: ensure("bossToolCall").filter((t) => t.actionId === row.id),
+      }));
+    }
+    if (name === "bossApproval") {
+      return rowsList.map((row) => {
+        const action = ensure("bossAction").find((a) => a.id === row.actionId);
+        if (!action) return row;
+        const task = ensure("bossTask").find((t) => t.id === action.taskId);
+        const plan = task ? ensure("bossPlan").find((p) => p.id === task.planId) : undefined;
+        const withActions = (t: FakeRow) => ({
+          ...t,
+          actions: ensure("bossAction").filter((a) => a.taskId === t.id),
+        });
+        return {
+          ...row,
+          action: {
+            ...action,
+            task: task ? { ...task, plan: plan ? { ...plan, tasks: ensure("bossTask").filter((t) => t.planId === plan.id).map(withActions) } : undefined } : undefined,
+          },
+        };
+      });
+    }
     if (name === "bossCommand") {
       return rowsList.map((row) => {
         const plan = ensure("bossPlan").find((p) => p.commandId === row.id);
@@ -133,10 +190,10 @@ export function makeFakeDb(): FakeDbResult {
       where,
       include,
     }: {
-      where: { id?: string };
+      where: Record<string, unknown>;
       include?: Record<string, unknown>;
     }): Promise<FakeRow | null> => {
-      const row = ensure(name).find((r) => r.id === where.id) ?? null;
+      const row = ensure(name).find((r) => matches(r, where)) ?? null;
       if (!row) return null;
       return (applyIncludes(name, [row], include) as FakeRow[])[0] ?? row;
     },
@@ -178,21 +235,46 @@ export function makeFakeDb(): FakeDbResult {
       where,
       data,
     }: {
-      where: { id: string };
+      where: Record<string, unknown>;
       data: Record<string, unknown>;
     }): Promise<FakeRow | null> => {
       const list = ensure(name);
-      const index = list.findIndex((r) => r.id === where.id);
+      // Matches real Prisma: `where` may address any unique field (id, key, ...).
+      const index = list.findIndex((r) => matches(r, where));
       if (index === -1) return null;
       list[index] = { ...list[index], ...data };
       return list[index];
     },
-    delete: async ({ where }: { where: { id: string } }): Promise<FakeRow | null> => {
+    delete: async ({ where }: { where: Record<string, unknown> }): Promise<FakeRow | null> => {
       const list = ensure(name);
-      const index = list.findIndex((r) => r.id === where.id);
+      const index = list.findIndex((r) => matches(r, where));
       if (index === -1) return null;
       const [removed] = list.splice(index, 1);
       return removed;
+    },
+    upsert: async ({
+      where,
+      create,
+      update,
+    }: {
+      where: Record<string, unknown>;
+      create: Record<string, unknown>;
+      update: Record<string, unknown>;
+    }): Promise<FakeRow> => {
+      const list = ensure(name);
+      const index = list.findIndex((r) => matches(r, where));
+      if (index === -1) {
+        const row: FakeRow = {
+          id: `${name}_${list.length + 1}`,
+          ...withDefaults(name, { ...where, ...create }),
+        };
+        if (!("createdAt" in row)) row.createdAt = nextCreatedAt();
+        if (!("capturedAt" in row)) row.capturedAt = nextCreatedAt();
+        list.push(row);
+        return row;
+      }
+      list[index] = { ...list[index], ...update };
+      return list[index];
     },
   });
 
@@ -209,7 +291,27 @@ export function makeFakeDb(): FakeDbResult {
     bossTask: delegate("bossTask"),
     bossAction: delegate("bossAction"),
     bossAuditLog: delegate("bossAuditLog"),
+    bossApproval: delegate("bossApproval"),
+    bossToolCall: delegate("bossToolCall"),
+    bossDecision: delegate("bossDecision"),
+    bossMemory: delegate("bossMemory"),
+    bossLesson: delegate("bossLesson"),
+    sellerAccount: delegate("sellerAccount"),
+    sellerPermission: delegate("sellerPermission"),
+    product: delegate("product"),
+    productVariant: delegate("productVariant"),
+    sellerListing: delegate("sellerListing"),
+    sellerListingVersion: delegate("sellerListingVersion"),
+    sellerInventory: delegate("sellerInventory"),
+    sellerOrder: delegate("sellerOrder"),
+    sellerOrderItem: delegate("sellerOrderItem"),
+    sellerReturn: delegate("sellerReturn"),
+    sellerSettlement: delegate("sellerSettlement"),
   } as unknown as DbClient;
+
+  // Pre-create every table bucket so specs can assert `rows.x` lengths without
+  // a prior write touching that table.
+  for (const name of Object.keys(DELEGATE_NAMES)) ensure(name);
 
   return { db, rows };
 }

@@ -14,6 +14,7 @@ import { OpportunityIntelligenceModule } from "./opportunity-intelligence/opport
 import { ContentQaModule } from "./content-qa/content-qa.module";
 import { CampaignAnalyticsModule } from "./campaign-analytics/campaign-analytics.module";
 import { SystemModule } from "./system/system.module";
+import { SellerModule } from "./seller/seller.module";
 import { ApiKeyGuard } from "./security/api-key.guard";
 import { RateLimitGuard } from "./security/rate-limit.guard";
 import { AllExceptionsFilter } from "./observability/http-exception.filter";
@@ -32,6 +33,7 @@ import { RequestLoggerInterceptor } from "./observability/request-logger.interce
     CampaignAnalyticsModule,
     SystemModule,
     BossModule,
+    SellerModule,
   ],
   controllers: [HealthController],
   providers: [
