@@ -86,7 +86,7 @@ describe("BossService", () => {
   it("list embeds the full plan tree + audit trail for the Command Center", async () => {
     const { db } = makeFakeDb();
     const service = new BossService(db);
-    const command = await service.create({ text: "analyze revenue" });
+    await service.create({ text: "analyze revenue" });
     const listed = await service.list();
     expect(listed).toHaveLength(1);
     const row = listed[0];

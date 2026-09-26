@@ -11,14 +11,6 @@ import { STATUS_CODES } from "node:http";
 // stack/message is logged server-side and the client sees a generic message.
 // 4xx messages are the application's own (safe, already validated).
 
-interface ErrorBody {
-  statusCode: number;
-  error: string;
-  message: string | string[];
-  path: string;
-  timestamp: string;
-}
-
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger("Exception");

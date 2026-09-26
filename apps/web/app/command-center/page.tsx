@@ -1,14 +1,25 @@
 import type { Metadata } from "next";
+import {
+  Card,
+  EmptyState,
+  InfoBanner,
+  Kpi,
+  Panel,
+  SectionHeading,
+  StatusPill,
+  UnavailableBanner,
+  type Tone,
+} from "../_ui/ui";
 
 export const metadata: Metadata = {
   title: "Command Center — AI_OS",
-  description: "AI_OS Owner Command Center (Phase-08 read foundation): commands, plans, integration status",
+  description: "AI_OS Owner Command Center: commands → plans → actions, permission state, audit, integration status",
 };
+
+export const dynamic = "force-dynamic";
 
 const API_BASE = process.env.API_BASE_URL ?? "http://localhost:3001";
 const API_KEY = process.env.API_KEY ?? "";
-
-export const dynamic = "force-dynamic";
 
 interface BossAction {
   id: string;
@@ -74,114 +85,158 @@ async function getJson<T>(path: string): Promise<T | null> {
   }
 }
 
-const cardStyle: React.CSSProperties = {
-  border: "1px solid #ddd",
-  borderRadius: 8,
-  padding: "1rem",
-  marginBottom: "1rem",
+const actionTone = (action: BossAction): Tone => {
+  if (action.status === "executed") return "green";
+  if (action.permissionResult === "denied") return "red";
+  if (action.status === "proposed") return "blue";
+  return "amber";
 };
 
 export default async function CommandCenterPage() {
-  const [commands, providers] = await Promise.all([
+  const [commands, registry] = await Promise.all([
     getJson<BossCommandRow[]>("/boss/commands"),
     getJson<{ configuredCount: number; registeredCount: number; providers: ProviderRow[] }>("/system/providers"),
   ]);
 
+  const connected = commands !== null && registry !== null;
+  const configured = registry?.configuredCount ?? null;
+  const registered = registry?.registeredCount ?? null;
+  const commandCount = commands?.length ?? null;
+  const plannedCount = commands?.filter((c) => c.status === "planned" || c.status === "archived").length ?? null;
+  const denied = commands?.flatMap((c) => c.plan?.tasks.flatMap((t) => t.actions.filter((a) => a.permissionResult === "denied")) ?? []).length ?? null;
+
   return (
-    <main style={{ fontFamily: "system-ui, sans-serif", margin: "2rem", maxWidth: 960 }}>
-      <h1>AI_OS — Command Center</h1>
-      <p>
-        <a href="/">← home</a> · <a href="/dashboard">dashboard</a> · Phase-08 read foundation (commands, plans,
-        integration status).
+    <main>
+      <h1>Command Center</h1>
+      <p className="h-sub">
+        Owner → Boss / AI CEO → plan → tasks → actions → permission → execution (proposed-only) → audit. Owner is final
+        authority.
       </p>
 
-      {!commands && !providers && (
-        <p style={{ color: "#a31515" }}>
-          ⚠ API unreachable at {API_BASE}. Start the API (<code>npm run dev --workspace @ai-os/api</code>) and refresh.
-        </p>
+      {!connected && (
+        <UnavailableBanner
+          title="API unavailable"
+          body={
+            <>
+              Could not reach <code>{API_BASE}</code> or authentication failed. Set the server-side{" "}
+              <code>API_KEY</code> on the web service to see commands and integrations.
+            </>
+          }
+        />
       )}
 
-      {providers && (
-        <section style={cardStyle}>
-          <h2>Integrations</h2>
-          <p>
-            {providers.configuredCount}/{providers.registeredCount} configured · status detected from env var name
-            presence only (values never exposed).
-          </p>
-          <ul>
-            {providers.providers.map((p) => (
-              <li key={p.name}>
-                <strong>{p.name}</strong> ({p.kind}) —{" "}
-                {p.configured ? (
-                  <span style={{ color: "#1e6f1e" }}>configured</span>
-                ) : (
-                  <span style={{ color: "#a31515" }}>not configured</span>
-                )}
-                <div style={{ color: "#555", fontSize: "0.9rem" }}>{p.description}</div>
-                <div style={{ color: "#777", fontSize: "0.85rem" }}>{p.activation}</div>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <div className="kpi-grid">
+        <Kpi label="Commands" value={commandCount ?? "Awaiting data"} hint="owner-issued commands" />
+        <Kpi label="Planned" value={plannedCount ?? "—"} hint="planned + archived" />
+        <Kpi label="Denied actions" value={denied ?? "—"} hint="permission denials at current autonomy" />
+        <Kpi label="Integrations" value={configured != null ? `${configured}/${registered}` : "Awaiting data"} tone={configured != null && configured > 0 ? "green" : "amber"} hint="configured vs registered" />
+      </div>
 
-      {commands && (
-        <section>
-          <h2>Owner commands → plans → actions</h2>
-          {commands.length === 0 ? (
-            <p style={{ color: "#888" }}>
-              No Boss commands yet. POST one via <code>/boss/commands</code> and it will appear here as a structured,
-              auditable plan (Phase-01; actions are always proposals — nothing executes).
+      <SectionHeading
+        title="Boss / AI CEO"
+        right={<StatusPill tone={connected ? "blue" : "amber"} label={connected ? "channel connected" : "awaiting data"} />}
+      />
+
+      {commands === null ? (
+        <EmptyState title="Commands unavailable" body="The /boss/commands feed is not reachable right now (server-side API key)." />
+      ) : commands.length === 0 ? (
+        <EmptyState
+          title="No owner commands yet"
+          body={
+            <>
+              POST one via <code>POST /boss/commands</code> and it appears here as a structured, auditable plan. Nothing
+              executes — actions are stored as proposals only.
+            </>
+          }
+        />
+      ) : (
+        commands.map((command) => (
+          <Card key={command.id} style={{ marginBottom: "1rem" }}>
+            <div className="card-title">
+              <h2>{command.text}</h2>
+              <StatusPill tone={command.status === "archived" ? "amber" : command.status === "planned" ? "blue" : "amber"} label={command.status} />
+            </div>
+            <p className="dim" style={{ margin: "0 0 0.8rem" }}>
+              autonomy {command.autonomyLevel} · <span className="mono">{command.createdAt}</span>
             </p>
-          ) : (
-            commands.map((command) => (
-              <div key={command.id} style={cardStyle}>
-                <p>
-                  <strong>{command.text}</strong>
-                </p>
-                <p style={{ color: "#555" }}>
-                  status: {command.status} · autonomy {command.autonomyLevel} · {command.createdAt}
-                </p>
-                {command.plan && (
-                  <>
-                    <p style={{ color: "#333" }}>
-                      <strong>Objective:</strong> {command.plan.objective} ({command.plan.status})
-                    </p>
-                    {command.plan.tasks.length === 0 ? null : (
-                      <ul>
-                        {command.plan.tasks.map((task) => (
-                          <li key={task.id}>
-                            {task.order}. {task.title} ({task.status})
-                            {task.actions.length > 0 && (
-                              <ul>
-                                {task.actions.map((action) => (
-                                  <li key={action.id}>
-                                    tool <code>{action.tool}</code> — permission {action.permissionResult} (required{" "}
-                                    {action.requiredAutonomy}, at autonomy {action.autonomyLevel}) — {action.status}
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </>
-                )}
-                {command.auditLogs.length > 0 && (
-                  <p style={{ color: "#777", fontSize: "0.85rem" }}>
-                    audit: {command.auditLogs.map((a) => `${a.verb}(${a.entityType})`).join(" · ")}
-                  </p>
-                )}
+            {!command.plan && <p className="muted">No structured plan generated.</p>}
+            {command.plan && (
+              <>
+                <div className="card-title" style={{ marginTop: "0.4rem" }}>
+                  <h2>Objective</h2>
+                  <StatusPill tone="blue" label={command.plan.status} />
+                </div>
+                <p style={{ margin: "0 0 0.8rem", color: "var(--text-dim)" }}>{command.plan.objective}</p>
+                {command.plan.tasks.length === 0 && <p className="muted">No tasks generated.</p>}
+                <ul className="list-plain">
+                  {command.plan.tasks.map((task) => (
+                    <li key={task.id}>
+                      <div className="overflow-safe" style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                        <strong>
+                          {task.order}. {task.title}
+                        </strong>
+                        <StatusPill tone="blue" label={task.status} />
+                      </div>
+                      {task.actions.length > 0 && (
+                        <ul className="tree list-plain" style={{ marginTop: "0.4rem" }}>
+                          {task.actions.map((action) => (
+                            <li key={action.id} className="overflow-safe">
+                              <code>{action.tool}</code> · permission <StatusPill tone={actionTone(action)} label={action.permissionResult} /> · required{" "}
+                              {action.requiredAutonomy}, at autonomy {action.autonomyLevel} · <span className="dim">{action.status}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {command.auditLogs.length > 0 && (
+              <div className="tree" style={{ marginTop: "0.8rem" }}>
+                <div className="muted" style={{ fontSize: "0.78rem", marginBottom: "0.3rem" }}>
+                  Audit trail
+                </div>
+                {command.auditLogs.map((a) => (
+                  <div key={a.id} className="muted mono" style={{ fontSize: "0.78rem" }}>
+                    {a.verb} · {a.entityType} · {a.createdAt}
+                  </div>
+                ))}
               </div>
-            ))
-          )}
-        </section>
+            )}
+          </Card>
+        ))
       )}
 
-      <p style={{ color: "#999", fontSize: "0.85rem" }}>
-        Read-only foundation: this page renders recorded state only. Nothing here creates, mutates, or fabricates data.
-      </p>
+      <SectionHeading title="Integrations" right={<StatusPill tone={configured != null && configured > 0 ? "green" : "amber"} label={configured != null ? `${configured}/${registered} configured` : "awaiting data"} />} />
+
+      {registry === null ? (
+        <EmptyState title="Integration status unavailable" body="The /system/providers feed is not reachable right now." />
+      ) : registry.providers.length === 0 ? (
+        <EmptyState title="No providers registered" body="The provider registry is empty." />
+      ) : (
+        <div className="grid-2">
+          {registry.providers.map((p) => (
+            <Panel key={p.name}>
+              <div className="card-title">
+                <h2 className="overflow-safe">{p.name}</h2>
+                {p.configured ? <StatusPill tone="green" label="configured" /> : <StatusPill tone="amber" label="not configured" />}
+              </div>
+              <p className="muted" style={{ margin: "0 0 0.4rem", fontSize: "0.9rem" }}>
+                {p.description}
+              </p>
+              <p className="muted" style={{ margin: 0, fontSize: "0.82rem" }}>
+                {p.activation}
+              </p>
+            </Panel>
+          ))}
+        </div>
+      )}
+
+      <InfoBanner>
+        Read-only foundation. This page renders recorded state only — it never creates, mutates, or fabricates data, and
+        never executes a tool. Permission results reflect the configured autonomy level.
+      </InfoBanner>
     </main>
   );
 }
