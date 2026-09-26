@@ -209,3 +209,10 @@ ACTUAL: apps/web had a no-op 'test' script (echo) - zero real assertions on the 
 EVIDENCE QUALITY: FACT (turbo 12/12 forced, web 7/7, prisma validate, local smoke, production header + route probes)
 LESSON 1: Windows PowerShell 5.1 'Set-Content'/'-replace | Set-Content' writes ANSI by default and DESTROYS non-ASCII (Rs, U+2212, em-dash) in source files. Use the edit tool, or [System.IO.File]::ReadAllText/WriteAllText with UTF8Encoding(False) - and always re-check glyphs + U+FFFD after any bulk text rewrite. LESSON 2: a commit that changes package.json WITHOUT its package-lock.json breaks the Render build (npm ci is strict) - the next push would have failed; always 'git add' both and re-verify with 'npm ci --dry-run'. LESSON 3: HTTP/2 response header names are lowercase - a case-sensitive header assertion will report a false MISSING for a header that is actually present.
 REUSABLE: YES
+
+CONTEXT: DEPLOY-LANDING VERIFICATION (Render free tier)
+EXPECTED: pushed code is live shortly after push
+ACTUAL: The ai-os-api deploy for commits 6e572e4/dd8ef16 did NOT appear within 20+ minutes, so it was reported as BLOCKED_EXTERNAL_DEPLOYMENT. On re-probe at 09:38Z the deploy HAD landed (x-powered-by absent). Render free-tier deploys can lag or queue with no local signal - absence of a change right after push is NOT proof of a failed/disabled deploy.
+EVIDENCE QUALITY: FACT (header probes before/after, locally booted dist/main.js)
+LESSON: Before declaring BLOCKED_EXTERNAL_DEPLOYMENT, do all three: (1) wait a full second window, (2) prove the fix works locally from the SAME build output, (3) re-probe later. Report the blocker only after all three. When a fix is provably live, an observable header/response change from the SAME commit identifies the build - no need to exercise a money-mutating or side-effecting endpoint to prove it, and you should not.
+REUSABLE: YES
