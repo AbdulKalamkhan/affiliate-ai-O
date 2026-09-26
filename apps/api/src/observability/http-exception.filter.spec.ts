@@ -87,4 +87,48 @@ describe("AllExceptionsFilter", () => {
     filter.catch(new BadRequestException("your input"), host);
     expect(loggerErrorSpy).not.toHaveBeenCalled();
   });
+
+  describe("security-relevant 4xx logging", () => {
+    let loggerWarnSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      loggerWarnSpy = jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+      loggerWarnSpy.mockRestore();
+    });
+
+    it("logs a failed authentication (401) so refusals are never invisible", () => {
+      const { host } = makeHost("/boss/actions", "POST");
+      filter.catch(new UnauthorizedException("Invalid or missing API key"), host);
+      expect(loggerWarnSpy).toHaveBeenCalledTimes(1);
+      expect(loggerWarnSpy.mock.calls[0][0]).toContain("POST /boss/actions -> 401");
+    });
+
+    it("logs a throttled request (429)", () => {
+      const { host } = makeHost("/affiliate-links/x/click");
+      filter.catch(new HttpException("Too many requests", HttpStatus.TOO_MANY_REQUESTS), host);
+      expect(loggerWarnSpy).toHaveBeenCalledTimes(1);
+      expect(loggerWarnSpy.mock.calls[0][0]).toContain("-> 429");
+    });
+
+    it("names the principal when one was attached, and never logs a credential", () => {
+      const { host } = makeHost("/content-qa/approvals", "POST");
+      const request = (host as unknown as { switchToHttp: () => { getRequest: () => Record<string, unknown> } })
+        .switchToHttp()
+        .getRequest();
+      request.principal = { id: "api-key-owner", role: "owner", authMethod: "api_key" };
+      filter.catch(new UnauthorizedException("nope"), host);
+      const line = String(loggerWarnSpy.mock.calls[0][0]);
+      expect(line).toContain("principal: api-key-owner");
+      expect(line).not.toMatch(/bearer|api[_ ]?key\s*[=:]/i);
+    });
+
+    it("stays silent for a plain 400", () => {
+      const { host } = makeHost("/x");
+      filter.catch(new BadRequestException("bad input"), host);
+      expect(loggerWarnSpy).not.toHaveBeenCalled();
+    });
+  });
 });

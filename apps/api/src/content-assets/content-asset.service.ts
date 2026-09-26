@@ -9,7 +9,7 @@ import { prisma } from "@ai-os/database";
 import type { DbClient } from "../db/db-client";
 import { DB_CLIENT } from "../db/tokens";
 import { ContentQaService } from "../content-qa/content-qa.service";
-import { isPreApprovedPublishAsset } from "../content-qa/content-qa.rules";
+import { PublishApprovalService } from "../content-qa/publish-approval.service";
 
 export interface CreateContentAssetInput {
   title: string;
@@ -33,6 +33,7 @@ export class ContentAssetService {
   constructor(
     @Inject(DB_CLIENT) private readonly client: DbClient = prisma as DbClient,
     private readonly qa: ContentQaService,
+    private readonly publishApprovals: PublishApprovalService,
   ) {}
 
   private async assertLinkExists(linkId: string) {
@@ -100,13 +101,14 @@ export class ContentAssetService {
       throw new BadRequestException("disclosure cannot be removed while the asset is published");
     }
 
-    // QA-01 approval gate (Phase-04, safe enforcement): a FRESH unpublished→published
-    // transition must pass BOTH QA gates on the prospective state — unless the asset was
-    // published before the QA engine existed (pre-approved, e.g. live Campaign #3), so the
-    // gate can never block the running campaign. Re-affirming publish on an already-live
-    // asset is a no-op and is never gated.
+    // QA-01 approval gate: a FRESH unpublished→published transition must pass
+    // BOTH QA gates on the prospective state, unless the asset holds an
+    // explicit, auditable publish approval record (publish_approvals table —
+    // approver + timestamp + reason). The live Campaign #3 asset holds such a
+    // migrated approval, so the running campaign is never blocked. Re-affirming
+    // publish on an already-live asset is a no-op and is never gated.
     const transitioningToPublished = input.published === true && !asset.published;
-    if (transitioningToPublished && !isPreApprovedPublishAsset(asset.id)) {
+    if (transitioningToPublished && !(await this.publishApprovals.hasApproval(asset.id))) {
       const { verdict } = await this.qa.evaluateState({
         id: asset.id,
         title,

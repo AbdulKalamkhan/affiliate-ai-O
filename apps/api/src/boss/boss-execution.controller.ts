@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
 
+import { CurrentPrincipal, type Principal } from "../security/principal";
 import { BossApprovalService } from "./boss-approval.service";
 import { BossExecutorService } from "./boss-executor.service";
 import { BossMemoryService } from "./boss-memory.service";
@@ -67,22 +68,26 @@ export class BossExecutionController {
   @Post("approvals/:id/approve")
   approve(
     @Param("id") id: string,
-    @Body() body: { note?: string; decidedBy?: string } = {},
+    // `decidedBy` is taken from the AUTHENTICATED principal, never from the body,
+    // so an approval cannot be attributed to someone who did not make it.
+    @CurrentPrincipal() principal: Principal,
+    @Body() body: { note?: string } = {},
   ) {
     return this.approvals.decide(id, "approved", {
       note: body?.note,
-      decidedBy: body?.decidedBy ?? "owner",
+      decidedBy: principal.id,
     });
   }
 
   @Post("approvals/:id/reject")
   reject(
     @Param("id") id: string,
-    @Body() body: { note?: string; decidedBy?: string } = {},
+    @CurrentPrincipal() principal: Principal,
+    @Body() body: { note?: string } = {},
   ) {
     return this.approvals.decide(id, "rejected", {
       note: body?.note,
-      decidedBy: body?.decidedBy ?? "owner",
+      decidedBy: principal.id,
     });
   }
 

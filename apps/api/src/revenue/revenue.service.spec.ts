@@ -164,6 +164,69 @@ describe("RevenueService", () => {
     await expect(service.reject("nope")).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  describe("money integrity", () => {
+    it("records an audit row for every revenue write (no silent money change)", async () => {
+      const { db, rows } = makeFakeDb();
+      const service = new RevenueService(db);
+      const event = await service.record({ provider: "amazon", sourceId: "A1", value: 250, actor: "owner" });
+
+      const audit = rows.bossAuditLog.filter((r) => r.entityId === event.id);
+      expect(audit).toHaveLength(1);
+      expect(audit[0].verb).toBe("money_write");
+      expect(audit[0].actor).toBe("owner");
+      expect(audit[0].entityType).toBe("revenue_event");
+    });
+
+    it("audits reconcile and reject money writes with the full component breakdown", async () => {
+      const { db, rows } = makeFakeDb();
+      const service = new RevenueService(db);
+      const reconciled = await service.record({ provider: "amazon", sourceId: "A1", value: 250 });
+      const { profitRecord } = await service.reconcile(reconciled.id, {
+        grossAmount: 250,
+        feeAmount: 25,
+        costAmount: 100,
+        actor: "owner",
+      });
+      const rejectedEvent = await service.record({ provider: "amazon", sourceId: "A2", value: 50 });
+      await service.reject(rejectedEvent.id, "owner");
+
+      const profitAudit = rows.bossAuditLog.find((r) => r.entityId === profitRecord.id);
+      expect(profitAudit?.verb).toBe("money_write");
+      expect(profitAudit?.actor).toBe("owner");
+      expect((profitAudit?.detail as { netProfit: number }).netProfit).toBe(125);
+      expect(rows.bossAuditLog.some((r) => r.entityId === rejectedEvent.id && r.verb === "money_write")).toBe(true);
+    });
+
+    it("reconcile is atomic: a failed transaction leaves NO profit record and a PENDING event", async () => {
+      const fake = makeFakeDb();
+      const service = new RevenueService(fake.db);
+      const event = await service.record({ provider: "amazon", sourceId: "A1", value: 250 });
+
+      fake.failNextTransaction();
+      await expect(
+        service.reconcile(event.id, { grossAmount: 250, feeAmount: 25, costAmount: 100 }),
+      ).rejects.toThrow();
+
+      expect(fake.rows.profitRecord).toHaveLength(0);
+      const after = await service.get(event.id);
+      expect(after.status).toBe("pending");
+      // A retry after the failure must still succeed and produce exactly one profit record.
+      const retried = await service.reconcile(event.id, { grossAmount: 250, feeAmount: 25, costAmount: 100 });
+      expect(retried.profitRecord.netProfit).toBe(125);
+      expect(fake.rows.profitRecord).toHaveLength(1);
+    });
+
+    it("a rolled-back money write leaves no partial state", async () => {
+      const fake = makeFakeDb();
+      const service = new RevenueService(fake.db);
+      fake.failNextTransaction();
+      await expect(service.record({ provider: "amazon", sourceId: "A1", value: 250 })).rejects.toThrow();
+      expect(fake.rows.revenueEvent).toHaveLength(0);
+      expect(fake.rows.bossAuditLog).toHaveLength(0);
+      expect(fake.transactions.rolledBack).toBe(1);
+    });
+  });
+
   it("raises a concentration risk alert when one provider exceeds 90% of verified revenue", async () => {
     const { db } = makeFakeDb();
     const service = new RevenueService(db);

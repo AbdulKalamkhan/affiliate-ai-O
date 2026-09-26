@@ -510,9 +510,14 @@ model SellerSettlement {
   platform     SellerPlatform
   status       String        @default("pending")
   totalAmount  Decimal       @db.Decimal(12, 2)
-  fees         Decimal       @default(0) @db.Decimal(12, 2)
-  refunds      Decimal       @default(0) @db.Decimal(12, 2)
-  netAmount    Decimal       @db.Decimal(12, 2)
+  // Cost components are NULLABLE: a missing platform cost is UNKNOWN, never 0.
+  // 0 means "verified zero"; NULL means "not provided" (profit cannot be claimed).
+  fees         Decimal?      @db.Decimal(12, 2)
+  refunds      Decimal?      @db.Decimal(12, 2)
+  netAmount    Decimal?      @db.Decimal(12, 2)
+  // complete = every cost component verified, netAmount is real money.
+  // unknown  = at least one component is UNKNOWN, netAmount is NULL (not zero).
+  profitState  String        @default("unknown")
   currency     String        @default("INR")
   periodStart  DateTime?
   periodEnd    DateTime?
@@ -520,4 +525,20 @@ model SellerSettlement {
   updatedAt    DateTime      @updatedAt
   @@index([sellerId, status])
   @@map("seller_settlements")
+}
+
+// --- Phase-04 QA-01 publish approvals (replaces the hardcoded bypass) ---
+// An approval is an immutable record of WHO approved a publish, WHEN, and WHY.
+// Consulted by the QA gate instead of a hardcoded asset-id set.
+model PublishApproval {
+  id         String   @id @default(cuid())
+  assetId    String
+  approvedBy String
+  reason     String
+  evidence   Json?
+  source     String   @default("owner")
+  grantedAt  DateTime @default(now())
+
+  @@index([assetId, grantedAt])
+  @@map("publish_approvals")
 }

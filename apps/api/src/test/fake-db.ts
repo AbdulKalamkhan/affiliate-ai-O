@@ -1,4 +1,4 @@
-import type { DbClient } from "../db/db-client";
+import type { DbClient, DbTransactionClient } from "../db/db-client";
 
 export interface FakeRow {
   id: string;
@@ -8,6 +8,10 @@ export interface FakeRow {
 export interface FakeDbResult {
   db: DbClient;
   rows: Record<string, FakeRow[]>;
+  /** Transaction outcomes observed by the fake client. */
+  transactions: { committed: number; rolledBack: number };
+  /** Force the next $transaction to reject, to prove a money path is atomic. */
+  failNextTransaction(error?: Error): void;
 }
 
 interface FindOptions {
@@ -53,6 +57,7 @@ const DELEGATE_NAMES = {
   sellerOrderItem: 1,
   sellerReturn: 1,
   sellerSettlement: 1,
+  publishApproval: 1,
 } as const;
 
 const matches = (row: FakeRow, where?: Record<string, unknown>): boolean => {  if (!where) return true;
@@ -183,6 +188,7 @@ export function makeFakeDb(): FakeDbResult {
       const row: FakeRow = { id: `${name}_${ensure(name).length + 1}`, ...withDefaults(name, data) };
       if (!("createdAt" in row)) row.createdAt = nextCreatedAt();
       if (!("capturedAt" in row)) row.capturedAt = nextCreatedAt();
+      if (!("grantedAt" in row)) row.grantedAt = nextCreatedAt();
       ensure(name).push(row);
       return row;
     },
@@ -278,6 +284,11 @@ export function makeFakeDb(): FakeDbResult {
     },
   });
 
+  // Transaction support: runs the callback against the same in-memory tables and
+  // records the outcome, so specs can assert that a money path is atomic.
+  const transactions: { committed: number; rolledBack: number } = { committed: 0, rolledBack: 0 };
+  let failNextTransaction: Error | null = null;
+
   const db = {
     opportunity: delegate("opportunity"),
     opportunityEvidence: delegate("opportunityEvidence"),
@@ -307,11 +318,30 @@ export function makeFakeDb(): FakeDbResult {
     sellerOrderItem: delegate("sellerOrderItem"),
     sellerReturn: delegate("sellerReturn"),
     sellerSettlement: delegate("sellerSettlement"),
+    publishApproval: delegate("publishApproval"),
+    $transaction: async <T,>(fn: (tx: DbTransactionClient) => Promise<T>): Promise<T> => {
+      const forced = failNextTransaction;
+      failNextTransaction = null;
+      if (forced) {
+        transactions.rolledBack += 1;
+        throw forced;
+      }
+      const result = await fn(db as unknown as DbTransactionClient);
+      transactions.committed += 1;
+      return result;
+    },
   } as unknown as DbClient;
 
   // Pre-create every table bucket so specs can assert `rows.x` lengths without
   // a prior write touching that table.
   for (const name of Object.keys(DELEGATE_NAMES)) ensure(name);
 
-  return { db, rows };
+  return {
+    db,
+    rows,
+    transactions,
+    failNextTransaction(error = new Error("transaction failed")) {
+      failNextTransaction = error;
+    },
+  };
 }

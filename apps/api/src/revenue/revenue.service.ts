@@ -17,6 +17,8 @@ export interface RecordRevenueInput {
   currency?: string;
   linkId?: string;
   occurredAt?: Date;
+  /** Who caused the write (API principal, sync job, or the executor). */
+  actor?: string;
 }
 
 export interface ReconcileRevenueInput {
@@ -25,6 +27,7 @@ export interface ReconcileRevenueInput {
   costAmount: number;
   currency?: string;
   source?: string;
+  actor?: string;
 }
 
 const isFiniteNonNegative = (value: unknown): boolean =>
@@ -47,28 +50,53 @@ export class RevenueService {
 
     const provider = input.provider.trim();
     const sourceId = input.sourceId?.trim() || null;
+    const actor = input.actor?.trim() || "system";
 
-    // Idempotency: if the provider+sourceId pair already exists, return the existing
-    // event instead of creating a duplicate. Requires sourceId (provider's own id).
-    if (sourceId) {
-      const existing = await this.client.revenueEvent.findMany({
-        where: { provider, sourceId },
-        take: 1,
+    // Money write: revenue event + audit row commit together, and the provider
+    // + sourceId idempotency check runs INSIDE the transaction so two concurrent
+    // ingests of the same provider event cannot both create a duplicate.
+    return this.client.$transaction(async (tx) => {
+      if (sourceId) {
+        const existing = await tx.revenueEvent.findMany({
+          where: { provider, sourceId },
+          take: 1,
+        });
+        if (existing.length > 0) return existing[0];
+      }
+
+      const event = await tx.revenueEvent.create({
+        data: {
+          provider,
+          sourceId,
+          eventType: input.eventType?.trim() || "sale",
+          value: input.value,
+          currency: input.currency?.trim() || DEFAULT_CURRENCY,
+          linkId: input.linkId ?? null,
+          occurredAt: input.occurredAt ?? new Date(),
+          status: "pending",
+        },
       });
-      if (existing.length > 0) return existing[0];
-    }
 
-    return this.client.revenueEvent.create({
-      data: {
-        provider,
-        sourceId,
-        eventType: input.eventType?.trim() || "sale",
-        value: input.value,
-        currency: input.currency?.trim() || DEFAULT_CURRENCY,
-        linkId: input.linkId ?? null,
-        occurredAt: input.occurredAt ?? new Date(),
-        status: "pending",
-      },
+      await tx.bossAuditLog.create({
+        data: {
+          commandId: null,
+          actor,
+          entityType: "revenue_event",
+          entityId: event.id,
+          verb: "money_write",
+          detail: {
+            reason: "revenue event recorded",
+            provider: event.provider,
+            sourceId: event.sourceId,
+            eventType: event.eventType,
+            value: event.value,
+            currency: event.currency,
+            status: event.status,
+          },
+        },
+      });
+
+      return event;
     });
   }
 
@@ -112,33 +140,70 @@ export class RevenueService {
     const costAmount = input.costAmount;
     const netProfit = grossAmount - feeAmount - costAmount;
     const source = input.source?.trim() || `${event.provider}:${event.sourceId ?? event.id}`;
+    const actor = input.actor?.trim() || "system";
 
-    // Create the profit record first; the revenue event's reconciled status is the
-    // commit point (retrying reconcile after a partial failure is then safe).
-    const profitRecord = await this.client.profitRecord.create({
-      data: {
-        sourceType: "affiliate",
-        source,
-        grossAmount,
-        feeAmount,
-        costAmount,
-        netProfit,
-        currency: input.currency?.trim() || event.currency || DEFAULT_CURRENCY,
-        revenueEventId: id,
-        recordedAt: new Date(),
-      },
+    // Atomic money write: the profit record, the event's reconciled status and the
+    // audit row all commit together. A failure at any step leaves the event PENDING,
+    // so a retry cannot double-count profit or leave an unreconciled profit record.
+    return this.client.$transaction(async (tx) => {
+      const profitRecord = await tx.profitRecord.create({
+        data: {
+          sourceType: "affiliate",
+          source,
+          grossAmount,
+          feeAmount,
+          costAmount,
+          netProfit,
+          currency: input.currency?.trim() || event.currency || DEFAULT_CURRENCY,
+          revenueEventId: id,
+          recordedAt: new Date(),
+        },
+      });
+      const updated = await tx.revenueEvent.update({ where: { id }, data: { status: "reconciled" } });
+
+      await tx.bossAuditLog.create({
+        data: {
+          commandId: null,
+          actor,
+          entityType: "profit_record",
+          entityId: profitRecord.id,
+          verb: "money_write",
+          detail: {
+            reason: "revenue event reconciled",
+            revenueEventId: id,
+            source,
+            grossAmount,
+            feeAmount,
+            costAmount,
+            netProfit,
+            currency: profitRecord.currency,
+          },
+        },
+      });
+
+      return { event: { ...updated, profitRecord }, profitRecord };
     });
-    await this.client.revenueEvent.update({ where: { id }, data: { status: "reconciled" } });
-
-    return { event: { ...event, status: "reconciled" as const, profitRecord }, profitRecord };
   }
 
-  async reject(id: string) {
+  async reject(id: string, actor = "system") {
     const event = await this.get(id);
     if (event.status !== "pending") {
       throw new BadRequestException(`only pending revenue events can be rejected (current: ${event.status})`);
     }
-    return this.client.revenueEvent.update({ where: { id }, data: { status: "rejected" } });
+    return this.client.$transaction(async (tx) => {
+      const updated = await tx.revenueEvent.update({ where: { id }, data: { status: "rejected" } });
+      await tx.bossAuditLog.create({
+        data: {
+          commandId: null,
+          actor,
+          entityType: "revenue_event",
+          entityId: id,
+          verb: "money_write",
+          detail: { reason: "revenue event rejected", previousStatus: "pending", status: "rejected" },
+        },
+      });
+      return updated;
+    });
   }
 
   /**

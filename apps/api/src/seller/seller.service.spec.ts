@@ -260,6 +260,86 @@ describe("SellerService", () => {
     expect(partial.note).toContain("UNKNOWN");
   });
 
+  it("stores an UNKNOWN settlement as NULL, never as a false zero (money truthfulness)", async () => {
+    const { settlement, profit } = await service.recordSettlement({
+      sellerId,
+      platform: "AMAZON_SELLER",
+      totalAmount: 800,
+      fees: 100,
+    });
+    expect(profit.netProfit).toBeNull();
+    // A missing platform cost is UNKNOWN, so it must never be persisted as 0.
+    expect(settlement.netAmount ?? null).toBeNull();
+    expect(settlement.refunds ?? null).toBeNull();
+    expect(settlement.profitState).toBe("unknown");
+
+    const complete = await service.recordSettlement({
+      sellerId,
+      platform: "AMAZON_SELLER",
+      totalAmount: 1000,
+      fees: 150,
+      refunds: 0,
+      cogs: 400,
+      shipping: 50,
+      otherCosts: 0,
+    });
+    expect(complete.settlement.netAmount).toBe(400);
+    expect(complete.settlement.profitState).toBe("complete");
+    // A verified zero stays a real zero, it is not confused with UNKNOWN.
+    expect(complete.settlement.refunds).toBe(0);
+  });
+
+  it("audits every settlement and order money write", async () => {
+    await service.ingestOrder({
+      sellerId,
+      platform: "AMAZON_SELLER",
+      externalId: "AMZ-9",
+      totalAmount: 500,
+      items: [{ title: "Anklet", quantity: 1, unitPrice: 500 }],
+      actor: "owner",
+    });
+    const settlement = await service.recordSettlement({
+      sellerId,
+      platform: "AMAZON_SELLER",
+      totalAmount: 500,
+      fees: 50,
+      refunds: 0,
+      cogs: 100,
+      shipping: 0,
+      otherCosts: 0,
+      actor: "owner",
+    });
+
+    const orderAudit = db.rows.bossAuditLog.find(
+      (r) => r.entityType === "seller_order" && r.entityId === db.rows.sellerOrder[0].id,
+    );
+    expect(orderAudit?.verb).toBe("money_write");
+    expect(orderAudit?.actor).toBe("owner");
+    const settlementAudit = db.rows.bossAuditLog.find(
+      (r) => r.entityType === "seller_settlement" && r.entityId === settlement.settlement.id,
+    );
+    expect(settlementAudit?.verb).toBe("money_write");
+    expect((settlementAudit?.detail as { netAmount: number }).netAmount).toBe(350);
+  });
+
+  it("order ingestion is atomic: a rejected line item never leaves a half-written order", async () => {
+    await expect(
+      service.ingestOrder({
+        sellerId,
+        platform: "AMAZON_SELLER",
+        externalId: "AMZ-ATOMIC",
+        totalAmount: 100,
+        items: [
+          { title: "good", quantity: 1, unitPrice: 50 },
+          { title: "bad", quantity: 0, unitPrice: 50 },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(db.rows.sellerOrder).toHaveLength(0);
+    expect(db.rows.sellerOrderItem).toHaveLength(0);
+    expect(db.rows.bossAuditLog.filter((r) => r.verb === "money_write")).toHaveLength(0);
+  });
+
   it("upserts permissions without duplicating rows", async () => {
     await service.setPermissions(sellerId, [{ permission: "listings:write", granted: true }]);
     await service.setPermissions(sellerId, [{ permission: "listings:write", granted: false }]);
@@ -276,17 +356,31 @@ describe("SellerService", () => {
 });
 
 describe("marketplace adapters", () => {
-  it("never claims a live connection without credentials", () => {
+  it("never claims a live connection: credentials present is still not connected", async () => {
     const registry = new MarketplaceRegistryService();
-    const status = registry.status();
+    const status = await registry.status();
     expect(status).toHaveLength(3);
     for (const entry of status) {
       expect(entry.implementation).toBe("implemented");
-      expect(entry.connected).toBe(entry.missingEnvNames.length === 0);
-      if (!entry.connected) {
-        expect(entry.state).toBe("ready_for_connection");
-        expect(entry.ownerAction).toContain("set");
-      }
+      // No live transport exists, so `connected` is false for every provider
+      // regardless of whether credential env var NAMES happen to be present.
+      expect(entry.connected).toBe(false);
+      expect(entry.state).toBe("ready_for_connection");
+      expect(entry.ownerAction).not.toBeNull();
+    }
+  });
+
+  it("reports credentials-present and not-connected separately", async () => {
+    const name = "SELLER_ENGINE_TEST_FAKE_CREDENTIAL";
+    process.env[name] = "set-but-not-a-real-connection";
+    try {
+      const registry = new MarketplaceRegistryService();
+      const [status] = await registry.status();
+      expect(status.credentialsPresent).toBe(false);
+      expect(status.connected).toBe(false);
+      expect(status.ownerAction).toContain("set");
+    } finally {
+      delete process.env[name];
     }
   });
 

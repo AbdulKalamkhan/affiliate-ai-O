@@ -86,6 +86,13 @@ export interface MarketplaceAdapter {
   readonly requiredEnvNames: readonly string[];
   /** True only when every required env var name is present in the process env. */
   isConfigured(): boolean;
+  /**
+   * True only when a LIVE connection has been VERIFIED with the provider.
+   * This is deliberately separate from `isConfigured()`: credential NAMES being
+   * present proves nothing about connectivity, so it must never be reported as
+   * `connected`.
+   */
+  isLive(): Promise<boolean>;
   createListing(input: ListingPayload): Promise<{ externalId: string }>;
   updateListing(externalId: string, input: ListingPayload): Promise<void>;
   getListing(externalId: string): Promise<ListingPayload>;
@@ -114,6 +121,15 @@ export abstract class NotConnectedMarketplaceAdapter implements MarketplaceAdapt
 
   isConfigured(): boolean {
     return this.requiredEnvNames.every((name) => name in process.env);
+  }
+
+  /**
+   * No live transport exists for this adapter yet, so it is NEVER live — not even
+   * when every credential env var is present. Reporting `connected` from env
+   * names alone would be a false connection claim.
+   */
+  async isLive(): Promise<boolean> {
+    return false;
   }
 
   protected unavailable(capability: string): MarketplaceError {

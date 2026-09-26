@@ -243,49 +243,82 @@ export class SellerService {
     currency?: string;
     items?: { sku?: string; title: string; quantity: number; unitPrice: number }[];
     raw?: Prisma.InputJsonValue;
+    actor?: string;
   }) {
     if (!input.externalId?.trim()) throw new BadRequestException("externalId is required");
     if (typeof input.totalAmount !== "number" || !Number.isFinite(input.totalAmount)) {
       throw new BadRequestException("totalAmount must be a verified number");
     }
-    await this.getSeller(input.sellerId);
-
-    const existing = await this.client.sellerOrder.findMany({
-      where: { platform: input.platform, externalId: input.externalId.trim() },
-      take: 1,
-    });
-    if (existing[0]) {
-      return { created: false as const, order: existing[0], reason: "order already ingested (idempotent)" };
-    }
-
-    const order = await this.client.sellerOrder.create({
-      data: {
-        sellerId: input.sellerId,
-        externalId: input.externalId.trim(),
-        platform: input.platform,
-        status: input.status ?? "pending",
-        totalAmount: input.totalAmount,
-        currency: input.currency ?? CURRENCY,
-        ...(input.raw !== undefined ? { raw: input.raw } : {}),
-      },
-    });
+    // Validate every line item BEFORE opening the transaction: a bad quantity must
+    // not leave a half-written money record.
     for (const item of input.items ?? []) {
-      if (typeof item.quantity !== "number" || item.quantity <= 0) {
+      if (typeof item.quantity !== "number" || !Number.isFinite(item.quantity) || item.quantity <= 0) {
         throw new BadRequestException("order item quantity must be a positive verified number");
       }
-      await this.client.sellerOrderItem.create({
+      if (typeof item.unitPrice !== "number" || !Number.isFinite(item.unitPrice) || item.unitPrice < 0) {
+        throw new BadRequestException("order item unitPrice must be a non-negative verified number");
+      }
+    }
+    await this.getSeller(input.sellerId);
+    const actor = input.actor?.trim() || "system";
+
+    // Money write: the order header, ALL line items and the audit row commit
+    // together. A partial ingest (order without its items) is never possible, and
+    // the (platform, externalId) idempotency check runs inside the transaction.
+    return this.client.$transaction(async (tx) => {
+      const existing = await tx.sellerOrder.findMany({
+        where: { platform: input.platform, externalId: input.externalId.trim() },
+        take: 1,
+      });
+      if (existing[0]) {
+        return { created: false as const, order: existing[0], reason: "order already ingested (idempotent)" };
+      }
+
+      const order = await tx.sellerOrder.create({
         data: {
-          orderId: order.id,
-          ...(item.sku ? { sku: item.sku } : {}),
-          title: item.title,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          totalPrice: Number((item.unitPrice * item.quantity).toFixed(2)),
+          sellerId: input.sellerId,
+          externalId: input.externalId.trim(),
+          platform: input.platform,
+          status: input.status ?? "pending",
+          totalAmount: input.totalAmount,
           currency: input.currency ?? CURRENCY,
+          ...(input.raw !== undefined ? { raw: input.raw } : {}),
         },
       });
-    }
-    return { created: true as const, order };
+      for (const item of input.items ?? []) {
+        await tx.sellerOrderItem.create({
+          data: {
+            orderId: order.id,
+            ...(item.sku ? { sku: item.sku } : {}),
+            title: item.title,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            totalPrice: Number((item.unitPrice * item.quantity).toFixed(2)),
+            currency: input.currency ?? CURRENCY,
+          },
+        });
+      }
+
+      await tx.bossAuditLog.create({
+        data: {
+          commandId: null,
+          actor,
+          entityType: "seller_order",
+          entityId: order.id,
+          verb: "money_write",
+          detail: {
+            reason: "seller order ingested",
+            platform: order.platform,
+            externalId: order.externalId,
+            totalAmount: input.totalAmount,
+            currency: order.currency,
+            itemCount: input.items?.length ?? 0,
+          },
+        },
+      });
+
+      return { created: true as const, order };
+    });
   }
 
   async listOrders(sellerId?: string) {
@@ -355,6 +388,7 @@ export class SellerService {
     periodStart?: Date;
     periodEnd?: Date;
     currency?: string;
+    actor?: string;
   }) {
     await this.getSeller(input.sellerId);
     const profit: ProfitBreakdown = calculateNetProfit({
@@ -365,28 +399,57 @@ export class SellerService {
       refunds: input.refunds ?? UNKNOWN,
       otherCosts: input.otherCosts ?? UNKNOWN,
     });
-    const settlement = await this.client.sellerSettlement.create({
-      data: {
-        sellerId: input.sellerId,
-        platform: input.platform,
-        ...(input.externalId ? { externalId: input.externalId } : {}),
-        totalAmount: input.totalAmount,
-        fees: input.fees ?? 0,
-        refunds: input.refunds ?? 0,
-        // Persist the derived net only when the money is actually complete.
-        netAmount: profit.netProfit ?? 0,
-        status: input.status ?? "pending",
-        ...(input.periodStart ? { periodStart: input.periodStart } : {}),
-        ...(input.periodEnd ? { periodEnd: input.periodEnd } : {}),
-        currency: input.currency ?? CURRENCY,
-      },
+    const actor = input.actor?.trim() || "system";
+    // Money write: settlement + audit row commit atomically. Cost components that
+    // the platform did not state are stored as NULL (UNKNOWN), never 0, and the
+    // derived net is stored ONLY when every component is verified.
+    const settlement = await this.client.$transaction(async (tx) => {
+      const created = await tx.sellerSettlement.create({
+        data: {
+          sellerId: input.sellerId,
+          platform: input.platform,
+          ...(input.externalId ? { externalId: input.externalId } : {}),
+          totalAmount: input.totalAmount,
+          fees: input.fees ?? null,
+          refunds: input.refunds ?? null,
+          netAmount: profit.netProfit,
+          profitState: profit.isComplete ? "complete" : "unknown",
+          status: input.status ?? "pending",
+          ...(input.periodStart ? { periodStart: input.periodStart } : {}),
+          ...(input.periodEnd ? { periodEnd: input.periodEnd } : {}),
+          currency: input.currency ?? CURRENCY,
+        },
+      });
+
+      await tx.bossAuditLog.create({
+        data: {
+          commandId: null,
+          actor,
+          entityType: "seller_settlement",
+          entityId: created.id,
+          verb: "money_write",
+          detail: {
+            reason: "seller settlement recorded",
+            platform: created.platform,
+            totalAmount: input.totalAmount,
+            fees: input.fees ?? null,
+            refunds: input.refunds ?? null,
+            netAmount: profit.netProfit,
+            profitState: profit.isComplete ? "complete" : "unknown",
+            currency: created.currency,
+          },
+        },
+      });
+
+      return created;
     });
+
     return {
       settlement,
       profit,
       note: profit.isComplete
         ? "net profit derived from verified settlement components"
-        : "net profit UNKNOWN — settlement did not state every cost component",
+        : "net profit UNKNOWN — settlement did not state every cost component (stored as NULL, not 0)",
     };
   }
 

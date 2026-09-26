@@ -196,10 +196,10 @@ export class SellerController {
   // --------------------------------------------------------- marketplaces
 
   @Get("marketplaces")
-  marketplaceStatus() {
+  async marketplaceStatus() {
     return {
-      marketplaces: this.marketplaces.status(),
-      note: "connected=true requires every required credential env var to be present on the server.",
+      marketplaces: await this.marketplaces.status(),
+      note: "connected=true requires a VERIFIED live provider connection; credentialsPresent=true only means every required credential env var NAME is set.",
     };
   }
 

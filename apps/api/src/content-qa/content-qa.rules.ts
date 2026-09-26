@@ -3,18 +3,14 @@
 // before an asset may be considered publish-ready (17_AMAZON_COMPLIANCE.md,
 // 06_PHASE_GATES PATH-04 gate: assets reach publish-ready only after BOTH QA
 // gates pass). Enforcement is QA-01: ContentAssetService rejects a fresh
-// unpublished→published transition unless this engine says publishReady or the
-// asset was pre-approved before the engine existed (see below).
-
-// Assets that the Owner published before the QA engine existed are pre-approved,
-// so QA-01 enforcement can NEVER block the live Campaign #3 asset
-// (`cmuczfp6y0002ah1g7fjqmuxd`, published 2026-09-25 with real Pinterest traffic).
-export const PRE_APPROVED_PUBLISH_ASSET_IDS: ReadonlySet<string> = new Set([
-  "cmuczfp6y0002ah1g7fjqmuxd",
-]);
-
-export const isPreApprovedPublishAsset = (assetId: string): boolean =>
-  PRE_APPROVED_PUBLISH_ASSET_IDS.has(assetId);
+// unpublished→published transition unless this engine says publishReady.
+//
+// NOTE (2026-09-26): the previous hardcoded PRE_APPROVED_PUBLISH_ASSET_IDS set
+// has been REMOVED from this file. Publish exceptions are now real, auditable
+// approval records in the `publish_approvals` table (see
+// publish-approval.service.ts), each with an approver, timestamp and reason.
+// The live Campaign #3 asset keeps working because its approval was migrated
+// into that table — not because an id was hardcoded here.
 
 export const DISCLOSURE_PATTERN =
   /((disclosure|affiliate disclosure)\s*[:.\-]|as an amazon associate\b|earn(s|ing)? from qualifying purchases)/i;

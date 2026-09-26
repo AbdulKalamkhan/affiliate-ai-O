@@ -15,11 +15,14 @@ export interface MarketplaceStatus {
   displayName: string;
   state: ConnectionState;
   connected: boolean;
+  /** True when every credential env var NAME is present (still NOT a connection). */
+  credentialsPresent: boolean;
   implementation: "implemented";
   capabilities: readonly MarketplaceCapability[];
   requiredEnvNames: readonly string[];
   missingEnvNames: string[];
   ownerAction: string | null;
+  note: string | null;
 }
 
 const adapters = (): MarketplaceAdapter[] => [
@@ -45,28 +48,39 @@ export class MarketplaceRegistryService {
   }
 
   /**
-   * Connection truth. `connected` is derived ONLY from the presence of every
-   * required credential env var NAME — never from a value, never from a guess.
+   * Connection truth. `connected` is derived ONLY from a verified live check with
+   * the provider. Credential env var NAMES being present is reported separately as
+   * `credentialsPresent` — it is never treated as a connection, and no value is
+   * ever read, logged or stored.
    */
-  status(): MarketplaceStatus[] {
-    return this.list.map((adapter) => {
-      const missing = adapter.requiredEnvNames.filter((name) => !(name in process.env));
-      const configured = adapter.isConfigured();
-      const connected = configured;
-      return {
-        marketplace: adapter.marketplace,
-        displayName: adapter.displayName,
-        state: connected ? ("connected" as const) : ("ready_for_connection" as const),
-        connected,
-        implementation: "implemented" as const,
-        capabilities: adapter.capabilities,
-        requiredEnvNames: adapter.requiredEnvNames,
-        missingEnvNames: missing,
-        ownerAction: connected
-          ? null
-          : `set ${missing.join(", ")} as server env vars to enable a live connection`,
-      };
-    });
+  async status(): Promise<MarketplaceStatus[]> {
+    return Promise.all(
+      this.list.map(async (adapter) => {
+        const missing = adapter.requiredEnvNames.filter((name) => !(name in process.env));
+        const credentialsPresent = adapter.isConfigured();
+        // A failed/unavailable live probe must never be reported as connected.
+        const connected = await adapter.isLive().catch(() => false);
+        return {
+          marketplace: adapter.marketplace,
+          displayName: adapter.displayName,
+          state: connected ? ("connected" as const) : ("ready_for_connection" as const),
+          connected,
+          credentialsPresent,
+          implementation: "implemented" as const,
+          capabilities: adapter.capabilities,
+          requiredEnvNames: adapter.requiredEnvNames,
+          missingEnvNames: missing,
+          ownerAction: connected
+            ? null
+            : missing.length > 0
+              ? `set ${missing.join(", ")} as server env vars to enable a live connection`
+              : `credentials present but no live ${adapter.displayName} transport is implemented yet`,
+          note: connected
+            ? null
+            : "live provider calls are not implemented; every capability fails with NOT_CONNECTED",
+        };
+      }),
+    );
   }
 
   /**

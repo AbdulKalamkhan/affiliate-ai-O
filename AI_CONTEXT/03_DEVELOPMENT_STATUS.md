@@ -72,29 +72,73 @@
 
 2026-09-26 - WEB UI LOOP (Owner MAXIMUM-AUTONOMOUS directive: premium glassmorphism for Dashboard + Command Center): delivered. apps/web/app/globals.css new design system (dark near-black base, radial/mesh gradients, translucent backdrop-blur glass cards, soft borders, restrained blue/teal accent, status pills green/amber/red/blue WITH text labels, responsive <=640px, focus-visible, prefers-reduced-motion); apps/web/app/_ui/ui.tsx shared server components (Kpi, StatusPill, Card, Panel, SectionHeading, EmptyState, UnavailableBanner, InfoBanner, ValueTag); layout.tsx sticky glass topbar (AI_OS brand + Home/Dashboard/Command Center/Campaign Analytics nav + footer); home page.tsx live system status (health/providers/key state + money KPIs + nav cards); dashboard page rewrite (Primary KPI grid: Revenue, Profit, Clicks, Conversions, Conversion Rate, Active Campaigns, Published Assets, Providers; campaign cards from real /campaign-analytics/overview; revenue concentration widget; recent links/assets/events; system area) with conversion rate only when clicks>0 else 'Awaiting data'; command-center page (commands->plans->tasks->actions permission/execution + audit trail + integrations) rendered through glass panels; NEW /campaigns Campaign Analytics page (totals KPI grid + per-campaign cards from real API data). ALL pages force-dynamic SSR, Bearer under server-side API_KEY only, never client-side; unsafe states: API down -> 'API unavailable' banner, unknown values -> 'Awaiting data'/'Not available', never a fabricated 0; Phase-00 TRUTHFULLY BLOCKED (4 clicks, 0 conversions, revenue/profit Rs0). Also cleaned 2 pre-existing api lint warnings (unused ErrorBody interface in http-exception.filter.ts; unused var in boss.service.spec.ts) - api lint now 0 warnings. Gates: web typecheck/lint/build PASS (routes /, /campaigns, /command-center, /dashboard all dynamic), full turbo 12/12 PASS (api jest 157/157, 18 suites), prisma validate + migrate status 5/5 PASS. Local prod-mode smoke: /, /dashboard, /command-center, /campaigns all 200, leak=False, fallback banners shown (no key), nav intact. Frontend deployed earlier this session (commit 58e8a6f, ai-os-web live). Commit for UI batch pending push.
 
-## PHASE-01A / SELLER FOUNDATION — IMPLEMENTED 2026-09-26 (Owner maximum-autonomy directive)
+## PHASE-01A / SELLER FOUNDATION â€” IMPLEMENTED 2026-09-26 (Owner maximum-autonomy directive)
 
 **What is now REAL (code + tests, additive migrations only):**
 
-- **AI CEO executor boundary** (\pps/api/src/boss/boss-executor.service.ts\): actions now progress proposed -> approval_required -> approved -> executed | failed | denied | skipped. Tool calls are recorded in \oss_tool_calls\ with duration, output, error and status. Every transition writes a \oss_audit_logs\ row with an \ctor\.
-- **Policy layer** (\oss-execution-policy.ts\): pure, deterministic. Autonomy check + terminal-state guard + mandatory Owner approval for ANY external side effect (even at autonomy 5). Deny codes: UNKNOWN_TOOL, ALREADY_TERMINAL, AUTONOMY_TOO_LOW, APPROVAL_REQUIRED, APPROVAL_PENDING, APPROVAL_REJECTED, APPROVAL_EXPIRED.
-- **Tool registry truth** (\oss-tool-registry.ts\): each of the 9 typed tools declares sideEffect (none/internal/external) and implementation (implemented / not_implemented). \ffiliate.publish\ is honestly \
-ot_implemented\ — the executor records \skipped\, never a fake success.
-- **HITL approvals** (\oss-approval.service.ts\): pending -> approved | rejected | expired, 24h default expiry, expired approvals CANNOT be approved retroactively, repeated requests are idempotent, decisions are audited with actor=owner.
-- **Memory + learning foundation** (\oss-memory.service.ts\): \oss_memory\ (fact/pattern/lesson/constraint, upsert-by-key), \oss_decisions\ (proposal + rationale), \oss_lessons\ (derived ONLY from an OBSERVED outcome; outcomes immutable). \GET /boss/learning\ returns \
-o_data\ | \waiting_outcomes\ | \grounded\ and a NULL groundedRatio when there is no evidence. \GET /boss/recommendations\ returns \insufficient_evidence\ instead of inventing advice.
-- **Seller Engine foundation** (\pps/api/src/seller/\): products, product variants, listings + listing versions, inventory, orders + order items, returns, settlements, seller accounts + permissions, plus \seller_platform\ enum (AMAZON_SELLER / FLIPKART_SELLER / MEESHO_SUPPLIER). 12 new tables.
-- **Profit engine honesty**: \Revenue - COGS - fees - shipping - refunds - other = net\. Any UNKNOWN component makes \
-etProfit\ null. A settlement that omits fees/COGS is persisted but its net profit is reported as UNKNOWN, never optimistic.
+- **AI CEO executor boundary** (`apps/api/src/boss/boss-executor.service.ts`): actions now progress proposed -> approval_required -> approved -> executed | failed | denied | skipped. Tool calls are recorded in `boss_tool_calls` with duration, output, error and status. Every transition writes a `boss_audit_logs` row with an `actor`.
+- **Policy layer** (`boss-execution-policy.ts`): pure, deterministic. Autonomy check + terminal-state guard + mandatory Owner approval for ANY external side effect (even at autonomy 5). Deny codes: UNKNOWN_TOOL, ALREADY_TERMINAL, AUTONOMY_TOO_LOW, APPROVAL_REQUIRED, APPROVAL_PENDING, APPROVAL_REJECTED, APPROVAL_EXPIRED.
+- **Tool registry truth** (`boss-tool-registry.ts`): each of the 9 typed tools declares sideEffect (none/internal/external) and implementation (implemented / not_implemented). `affiliate.publish` is honestly `not_implemented` â€” the executor records `skipped`, never a fake success.
+- **HITL approvals** (`boss-approval.service.ts`): pending -> approved | rejected | expired, 24h default expiry, expired approvals CANNOT be approved retroactively, repeated requests are idempotent, decisions are audited with actor=owner.
+- **Memory + learning foundation** (`boss-memory.service.ts`): `boss_memory` (fact/pattern/lesson/constraint, upsert-by-key), `boss_decisions` (proposal + rationale), `boss_lessons` (derived ONLY from an OBSERVED outcome; outcomes immutable). `GET /boss/learning` returns `no_data` | `waiting_outcomes` | `grounded` and a NULL groundedRatio when there is no evidence. `GET /boss/recommendations` returns `insufficient_evidence` instead of inventing advice.
+- **Seller Engine foundation** (`apps/api/src/seller/`): products, product variants, listings + listing versions, inventory, orders + order items, returns, settlements, seller accounts + permissions, plus `seller_platform` enum (AMAZON_SELLER / FLIPKART_SELLER / MEESHO_SUPPLIER). 12 new tables.
+- **Profit engine honesty**: revenue - COGS - fees - shipping - refunds - other = net. Any UNKNOWN component makes `netProfit` null. A settlement that omits fees/COGS is persisted but its net profit is reported as UNKNOWN, never optimistic.
 - **Inventory invariants**: stock can never go negative; a rejected adjustment returns the unchanged snapshot + reason instead of corrupting levels.
-- **Listing generation + validation**: deterministic draft builder with restricted-word policy, title/description/bullet/price validation, and \unknownFields\ reporting. A missing price stays UNKNOWN. Drafts are versioned and NEVER auto-published.
-- **Marketplace adapter architecture** (\seller/marketplace/\): provider-neutral \MarketplaceAdapter\ contract (11 capabilities), capability discovery, normalized \MarketplaceError\ taxonomy, guarded execution (capability support + credential check BEFORE any provider call), and three adapters: Amazon Seller Central, Flipkart Seller Hub, Meesho Supplier — all \IMPLEMENTED_NOT_CONNECTED\.
-- **Global audit trail**: \oss_audit_logs.commandId\ is now NULLABLE (approvals/tool-calls/decisions/lessons can be audited) and a new \ctor\ column records who caused each transition.
+- **Listing generation + validation**: deterministic draft builder with restricted-word policy, title/description/bullet/price validation, and `unknownFields` reporting. A missing price stays UNKNOWN. Drafts are versioned and NEVER auto-published.
+- **Marketplace adapter architecture** (`seller/marketplace/`): provider-neutral `MarketplaceAdapter` contract (11 capabilities), capability discovery, normalized `MarketplaceError` taxonomy, guarded execution (capability support + credential check BEFORE any provider call), and three adapters: Amazon Seller Central, Flipkart Seller Hub, Meesho Supplier â€” all `IMPLEMENTED_NOT_CONNECTED`.
+- **Global audit trail**: `boss_audit_logs.commandId` is now NULLABLE (approvals/tool-calls/decisions/lessons can be audited) and a new `actor` column records who caused each transition.
 
-**Truth status (unchanged):** no marketplace is connected, no seller credentials exist, no LLM provider is connected, no external order was created. All three adapters report \eady_for_connection\ with the exact env var names the Owner must set.
+**Truth status (unchanged):** no marketplace is connected, no seller credentials exist, no LLM provider is connected, no external order was created. All three adapters report `ready_for_connection` with the exact env var names the Owner must set.
 
-**Tests:** 233 passing across 22 API suites (was 167/20) — +66 new tests covering policy, approvals, executor lifecycle, memory/learning, profit honesty, listing validation, inventory invariants, order idempotency and adapter connectivity truth.
+**Tests:** 233 passing across 22 API suites (was 167/20) â€” +66 new tests covering policy, approvals, executor lifecycle, memory/learning, profit honesty, listing validation, inventory invariants, order idempotency and adapter connectivity truth.
 
 **Migrations (both additive, 0 destructive statements):**
-- \20260926101432_add_boss_execution_and_seller_foundation\ — 16 tables, 1 enum, 19 indexes
-- \20260926101500_add_audit_actor_and_execution_indexes\ — audit actor column, nullable commandId, 3 indexes
+- `20260926101432_add_boss_execution_and_seller_foundation` â€” 16 tables, 1 enum, 19 indexes
+- `20260926101500_add_audit_actor_and_execution_indexes` â€” audit actor column, nullable commandId, 3 indexes
+
+## MONEY INTEGRITY + APPROVAL IDENTITY + MARKETPLACE TRUTH â€” IMPLEMENTED 2026-09-26
+
+**What changed (all verified by tests, all migrations additive):**
+
+- **QA-01 publish bypass replaced by a real approval model.** New `publish_approvals`
+  table (assetId, approvedBy, reason, evidence, source, grantedAt) +
+  `PublishApprovalService`. The live Campaign #3 asset keeps an auditable approval
+  migrated from the old hardcoded set â€” idempotent on boot, idempotent per asset â€” so
+  the running campaign is never blocked, and no QA verdict was fabricated for it.
+  `GET/POST /content-qa/approvals` expose the records.
+- **Money paths are atomic.** `DbClient` now REQUIRES `$transaction` at the type level,
+  so a multi-write money path cannot be written non-atomically. Revenue
+  record/reconcile/reject and seller order ingest/settlement each write their rows and
+  their audit row in ONE transaction. A failure can no longer leave an unreconciled
+  profit record, a half-written order, or an unaudited money change. `reconcile()`
+  re-checks pending status inside the transaction; order ingestion validates every line
+  item before opening one.
+- **Every money write is audited.** Revenue events, profit records, seller orders and
+  seller settlements each write a `boss_audit_logs` row with `verb=money_write`, the
+  actor, and the full amount breakdown.
+- **UNKNOWN is no longer stored as 0.** `seller_settlements.fees`/`refunds`/`netAmount`
+  are nullable and a new `profitState` column records `complete` vs `unknown`. A
+  settlement that does not state every cost component stores NULL, never a false zero.
+- **Approvals can no longer be spoofed.** An authenticated principal is attached by the
+  API-key guard (`apps/api/src/security/principal.ts`) and read via `@CurrentPrincipal()`.
+  `decidedBy` / `approvedBy` are derived from the verified credential, never from a
+  request body field, and the raw key is never logged or recorded.
+- **401/403/429 are now logged** (previously only 5xx was), so refused and throttled
+  requests are visible without ever recording a credential.
+- **`GET /seller/marketplaces` no longer conflates credentials with a connection.**
+  `connected` now requires a VERIFIED live provider connection; `credentialsPresent`
+  separately reports that env var NAMES are set. No adapter claims a live connection
+  while its transport is unimplemented â€” every capability still fails with
+  `NOT_CONNECTED`.
+
+**Migrations:** `20260926110000_add_publish_approvals`,
+`20260926110012_seller_settlement_unknown_safe`. `prisma migrate status` = up to date.
+
+**Verification:** API 255/255 tests (23 suites), repo typecheck, lint, build and
+`prisma validate` all green. Production still reports no marketplace, no LLM, no
+automation runtime connected, and Phase-00 remains BLOCKED on genuine Amazon evidence.
+
+**Documentation repair:** this file had been damaged by an earlier write (a shell
+interpreted backslash escapes, corrupting inline code spans and em dashes). Repaired
+and verified: no U+FFFD replacement characters, no escape damage, legitimate Windows
+paths and `\dt` references preserved.

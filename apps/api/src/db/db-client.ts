@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@ai-os/database";
 
-export type DbClient = Pick<
+type DbModels = Pick<
   PrismaClient,
   | "opportunity"
   | "opportunityEvidence"
@@ -30,4 +30,18 @@ export type DbClient = Pick<
   | "sellerOrderItem"
   | "sellerReturn"
   | "sellerSettlement"
+  | "publishApproval"
 >;
+
+export type DbTransactionClient = DbModels;
+
+/**
+ * Database surface used by services.
+ *
+ * `$transaction` is REQUIRED (not optional) so that any multi-write money path
+ * is forced to be atomic at the type level. Tests supply an in-memory
+ * implementation via the fake client.
+ */
+export type DbClient = DbModels & {
+  $transaction<T>(fn: (tx: DbTransactionClient) => Promise<T>): Promise<T>;
+};

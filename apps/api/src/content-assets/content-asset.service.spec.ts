@@ -1,7 +1,8 @@
 import { BadRequestException, NotFoundException, UnprocessableEntityException } from "@nestjs/common";
 import { ContentAssetService } from "./content-asset.service";
 import { ContentQaService } from "../content-qa/content-qa.service";
-import { isPreApprovedPublishAsset, PRE_APPROVED_PUBLISH_ASSET_IDS, QaVerdict } from "../content-qa/content-qa.rules";
+import { QaVerdict } from "../content-qa/content-qa.rules";
+import { PublishApprovalService } from "../content-qa/publish-approval.service";
 import { makeFakeDb } from "../test/fake-db";
 
 describe("ContentAssetService", () => {
@@ -14,7 +15,7 @@ describe("ContentAssetService", () => {
     });
 
   const makeService = (db: ReturnType<typeof makeFakeDb>["db"]) =>
-    new ContentAssetService(db, new ContentQaService(db));
+    new ContentAssetService(db, new ContentQaService(db), new PublishApprovalService(db));
 
   // Compliant copy: both QA gates pass once disclosureAdded is set.
   const seedCompliantAsset = async (db: ReturnType<typeof makeFakeDb>["db"]) => {
@@ -157,21 +158,38 @@ describe("ContentAssetService", () => {
     expect(published.title).toBe("Sterling Silver Anklet Chain");
   });
 
-  it("QA-01 pre-approved live asset bypasses the gate (Campaign #3 can never be blocked)", async () => {
+  it("QA-01: a live asset holding a publish APPROVAL RECORD bypasses the gate (Campaign #3 can never be blocked)", async () => {
     const { db } = makeFakeDb();
     const link = await seedLink(db);
+    const approvals = new PublishApprovalService(db);
     const service = makeService(db);
-    const liveId = [...PRE_APPROVED_PUBLISH_ASSET_IDS][0];
+    const liveId = "cmuczfp6y0002ah1g7fjqmuxd";
     const asset = await db.contentAsset.create({
       data: { id: liveId, title: "Anklet", linkId: link.id, disclosureAdded: true },
+    });
+    // No approval yet -> the QA gate applies and rejects the short description.
+    await expect(service.update(asset.id, { published: true })).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
+
+    await approvals.grant({
+      assetId: liveId,
+      approvedBy: "owner",
+      reason: "migrated live Campaign #3 asset",
     });
     const published = await service.update(asset.id, { published: true });
     expect(published.published).toBe(true);
   });
 
-  it("pre-approval membership matches the live Campaign #3 asset id only", () => {
-    expect(isPreApprovedPublishAsset("cmuczfp6y0002ah1g7fjqmuxd")).toBe(true);
-    expect(isPreApprovedPublishAsset("some-other-asset")).toBe(false);
+  it("publish approvals are records, not hardcoded ids: unknown assets have no approval", async () => {
+    const { db } = makeFakeDb();
+    const approvals = new PublishApprovalService(db);
+    expect(await approvals.hasApproval("cmuczfp6y0002ah1g7fjqmuxd")).toBe(false);
+    expect(await approvals.hasApproval("some-other-asset")).toBe(false);
+
+    await approvals.grant({ assetId: "asset-1", approvedBy: "owner", reason: "reviewed by owner" });
+    expect(await approvals.hasApproval("asset-1")).toBe(true);
+    expect(await approvals.hasApproval("asset-2")).toBe(false);
   });
 
   it("QA-01 requires BOTH gates: a network-compliant asset with failing content quality is still rejected", async () => {

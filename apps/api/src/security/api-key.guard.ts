@@ -2,6 +2,7 @@ import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from
 import { Reflector } from "@nestjs/core";
 
 import { IS_PUBLIC_KEY } from "./public.decorator";
+import { ANONYMOUS_PRINCIPAL, API_KEY_PRINCIPAL, PRINCIPAL_KEY } from "./principal";
 
 const readKey = (): string => {
   const key = process.env.API_KEY;
@@ -29,9 +30,16 @@ export class ApiKeyGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
-    if (isPublic) return true;
+    const request = context
+      .switchToHttp()
+      .getRequest<Record<string, unknown> & { headers: Record<string, string | undefined> }>();
+    if (isPublic) {
+      // Public routes still get an explicit anonymous principal so audit code can
+      // never fall back to guessing a caller.
+      request[PRINCIPAL_KEY] = ANONYMOUS_PRINCIPAL;
+      return true;
+    }
 
-    const request = context.switchToHttp().getRequest<{ headers: Record<string, string | undefined> }>();
     const expected = readKey();
     const header = request.headers["authorization"] ?? request.headers.Authorization ?? "";
     const matches = /^Bearer\s+(.+)$/i.exec(header);
@@ -39,6 +47,8 @@ export class ApiKeyGuard implements CanActivate {
     if (!timingSafeEqual(provided, expected)) {
       throw new UnauthorizedException("Invalid or missing API key");
     }
+    // The credential was verified; attach WHO the audit trail should name.
+    request[PRINCIPAL_KEY] = API_KEY_PRINCIPAL;
     return true;
   }
 }

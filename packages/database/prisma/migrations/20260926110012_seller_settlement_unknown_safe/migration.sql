@@ -1,0 +1,7 @@
+-- AlterTable
+ALTER TABLE "seller_settlements" ADD COLUMN     "profitState" TEXT NOT NULL DEFAULT 'unknown',
+ALTER COLUMN "fees" DROP NOT NULL,
+ALTER COLUMN "fees" DROP DEFAULT,
+ALTER COLUMN "refunds" DROP NOT NULL,
+ALTER COLUMN "refunds" DROP DEFAULT,
+ALTER COLUMN "netAmount" DROP NOT NULL;
