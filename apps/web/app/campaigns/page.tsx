@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Card, EmptyState, InfoBanner, Kpi, SectionHeading, StatusPill, UnavailableBanner, ValueTag } from "../_ui/ui";
+import { conversionRateText, formatInr } from "../_ui/format";
 
 export const metadata: Metadata = {
   title: "Campaign Analytics — AI_OS",
@@ -40,9 +41,6 @@ async function getJson<T>(path: string): Promise<T | null> {
   }
 }
 
-const inr = (n: number) =>
-  `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
 export default async function CampaignsPage() {
   const [overview, health] = await Promise.all([
     getJson<CampaignOverview>("/campaign-analytics/overview"),
@@ -53,8 +51,6 @@ export default async function CampaignsPage() {
   const t = overview
     ? { clicks: overview.totals.clicks, conversions: overview.totals.conversions, revenue: overview.totals.revenue, profit: overview.totals.profit }
     : { clicks: null, conversions: null, revenue: null, profit: null };
-
-  const rate = t.clicks != null && t.clicks > 0 && t.conversions != null ? (t.conversions / t.clicks) * 100 : null;
 
   return (
     <main>
@@ -86,9 +82,9 @@ export default async function CampaignsPage() {
         <Kpi label="Campaigns" value={overview ? overview.campaigns.length : "Awaiting data"} hint="with evidence" />
         <Kpi label="Clicks" value={t.clicks ?? "Awaiting data"} hint="real recorded traffic" />
         <Kpi label="Conversions" value={t.conversions ?? "Awaiting data"} hint="verified (reconciled) events" />
-        <Kpi label="Conversion rate" value={rate != null ? `${rate.toFixed(2)}%` : "Awaiting data"} hint={t.clicks != null && t.clicks > 0 ? `${t.clicks} clicks tracked` : "no clicks yet"} />
-        <Kpi label="Revenue" value={t.revenue != null ? inr(t.revenue) : "Awaiting data"} tone={t.revenue != null && t.revenue > 0 ? "green" : "amber"} hint="reconciled evidence only" />
-        <Kpi label="Profit" value={t.profit != null ? inr(t.profit) : "Awaiting data"} tone={t.profit != null && t.profit > 0 ? "green" : "amber"} hint="gross − fee − cost" />
+        <Kpi label="Conversion rate" value={conversionRateText(t.clicks, t.conversions)} hint={t.clicks != null && t.clicks > 0 ? `${t.clicks} clicks tracked` : "no clicks yet"} />
+        <Kpi label="Revenue" value={t.revenue != null ? formatInr(t.revenue) : "Awaiting data"} tone={t.revenue != null && t.revenue > 0 ? "green" : "amber"} hint="reconciled evidence only" />
+        <Kpi label="Profit" value={t.profit != null ? formatInr(t.profit) : "Awaiting data"} tone={t.profit != null && t.profit > 0 ? "green" : "amber"} hint="gross − fee − cost" />
       </div>
 
       <SectionHeading
@@ -111,10 +107,8 @@ export default async function CampaignsPage() {
         />
       ) : (
         <div className="campaign-cards">
-          {overview.campaigns.map((c) => {
-            const cRate = c.clicks > 0 ? (c.conversions / c.clicks) * 100 : null;
-            return (
-              <Card key={c.campaign}>
+          {overview.campaigns.map((c) => (
+            <Card key={c.campaign}>
                 <div className="card-title">
                   <h2 className="overflow-safe">{c.campaign === "(uncategorized)" ? "Uncategorized" : c.campaign}</h2>
                   {c.campaign === "(uncategorized)" && <ValueTag>untagged</ValueTag>}
@@ -131,18 +125,17 @@ export default async function CampaignsPage() {
                   <div className="kpi-label">Conversions</div>
                   <div style={{ fontWeight: 650, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{c.conversions}</div>
                   <div className="kpi-label">Conversion rate</div>
-                  <div style={{ fontWeight: 650, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{cRate != null ? `${cRate.toFixed(2)}%` : "Awaiting data"}</div>
+                  <div style={{ fontWeight: 650, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{conversionRateText(c.clicks, c.conversions)}</div>
                   <div className="kpi-label">Revenue</div>
-                  <div style={{ fontWeight: 650, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{inr(c.revenue)}</div>
+                  <div style={{ fontWeight: 650, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{formatInr(c.revenue)}</div>
                   <div className="kpi-label">Profit</div>
-                  <div style={{ fontWeight: 650, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{inr(c.profit)}</div>
+                  <div style={{ fontWeight: 650, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{formatInr(c.profit)}</div>
                 </div>
                 <p className="muted" style={{ margin: "0.6rem 0 0", fontSize: "0.8rem" }}>
                   Close rate reflects reconciled conversions only; pending/rejected events never count.
                 </p>
-              </Card>
-            );
-          })}
+            </Card>
+          ))}
         </div>
       )}
 

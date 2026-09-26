@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { conversionRate as conversionRateOf, formatInrCompact } from "./_ui/format";
 import { Card, EmptyState, InfoBanner, Kpi, SectionHeading, StatusPill, UnavailableBanner, type Tone } from "./_ui/ui";
 
 export const metadata: Metadata = {
@@ -73,7 +74,7 @@ export default async function HomePage() {
   const profit = overview?.totals.profit ?? null;
   const clicks = overview?.counts.clicks ?? null;
   const conversions = overview?.counts.conversions ?? null;
-  const conversionRate = clicks != null && clicks > 0 && conversions != null ? (conversions / clicks) * 100 : null;
+  const conversionRate = conversionRateOf(clicks, conversions);
 
   const healthTone: Tone = apiOk && dbOk ? "green" : apiOk ? "amber" : "red";
   const moneyTone: Tone = profit != null && profit > 0 ? "green" : clicks != null && clicks > 0 ? "amber" : "blue";
@@ -127,8 +128,8 @@ export default async function HomePage() {
         <div className="kpi-grid">
           <Kpi label="Clicks" value={clicks} hint="recorded real traffic" />
           <Kpi label="Conversions" value={conversions} hint="verified (reconciled) events" />
-          <Kpi label="Revenue" value={rev != null ? `₹${rev.toLocaleString("en-IN")}` : "—"} tone={rev != null && rev > 0 ? "green" : "amber"} hint="reconciled evidence only" />
-          <Kpi label="Profit" value={profit != null ? `₹${profit.toLocaleString("en-IN")}` : "—"} tone={profit != null && profit > 0 ? "green" : "amber"} hint="gross − fee − cost" />
+          <Kpi label="Revenue" value={formatInrCompact(rev)} tone={rev != null && rev > 0 ? "green" : "amber"} hint="reconciled evidence only" />
+          <Kpi label="Profit" value={formatInrCompact(profit)} tone={profit != null && profit > 0 ? "green" : "amber"} hint="gross − fee − cost" />
           <Kpi label="Conversion rate" value={conversionRate != null ? `${conversionRate.toFixed(1)}%` : "Awaiting data"} hint={clicks != null && clicks > 0 ? `${clicks} clicks tracked` : "no clicks yet"} />
           <Kpi label="Published pins" value={overview?.counts.publishedAssets ?? 0} hint="content assets live" />
         </div>

@@ -10,6 +10,7 @@ import {
   UnavailableBanner,
   ValueTag,
 } from "../_ui/ui";
+import { conversionRate, formatInr } from "../_ui/format";
 
 export const metadata: Metadata = {
   title: "Dashboard — AI_OS",
@@ -136,8 +137,6 @@ async function getJson<T>(path: string): Promise<T | null> {
   }
 }
 
-const inr = (n: number) =>
-  `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export default async function DashboardPage() {
   const [health, data, campaigns, registry] = await Promise.all([
@@ -155,7 +154,7 @@ export default async function DashboardPage() {
   const conversions = data?.counts.conversions ?? null;
   const revenue = data?.totals.revenue ?? null;
   const profit = data?.totals.profit ?? null;
-  const rate = clicks != null && clicks > 0 && conversions != null ? (conversions / clicks) * 100 : null;
+  const rate = conversionRate(clicks, conversions);
   const activeCampaigns = campaigns ? campaigns.campaigns.filter((c) => c.campaign !== "(uncategorized)").length : null;
   const configuredProviders = registry?.configuredCount ?? null;
   const registeredProviders = registry?.registeredCount ?? null;
@@ -200,8 +199,8 @@ export default async function DashboardPage() {
 
       {live ? (
         <div className="kpi-grid">
-          <Kpi label="Revenue" value={inr(revenue ?? 0)} tone={revenue != null && revenue > 0 ? "green" : "amber"} hint="reconciled evidence only" />
-          <Kpi label="Profit" value={inr(profit ?? 0)} tone={profit != null && profit > 0 ? "green" : "amber"} hint="gross − fee − cost" />
+          <Kpi label="Revenue" value={formatInr(revenue ?? 0)} tone={revenue != null && revenue > 0 ? "green" : "amber"} hint="reconciled evidence only" />
+          <Kpi label="Profit" value={formatInr(profit ?? 0)} tone={profit != null && profit > 0 ? "green" : "amber"} hint="gross − fee − cost" />
           <Kpi label="Clicks" value={clicks} hint="recorded real traffic" />
           <Kpi label="Conversions" value={conversions} hint="verified (reconciled) events" />
           <Kpi label="Conversion rate" value={rate != null ? `${rate.toFixed(2)}%` : "Awaiting data"} hint={clicks != null && clicks > 0 ? `${clicks} clicks tracked` : "no clicks yet"} />
@@ -230,9 +229,9 @@ export default async function DashboardPage() {
                     <div className="kpi-label">Conversions</div>
                     <div style={{ textAlign: "right", fontWeight: 650, fontVariantNumeric: "tabular-nums" }}>{c.conversions}</div>
                     <div className="kpi-label">Revenue</div>
-                    <div style={{ textAlign: "right", fontWeight: 650, fontVariantNumeric: "tabular-nums" }}>{inr(c.revenue)}</div>
+                    <div style={{ textAlign: "right", fontWeight: 650, fontVariantNumeric: "tabular-nums" }}>{formatInr(c.revenue)}</div>
                     <div className="kpi-label">Profit</div>
-                    <div style={{ textAlign: "right", fontWeight: 650, fontVariantNumeric: "tabular-nums" }}>{inr(c.profit)}</div>
+                    <div style={{ textAlign: "right", fontWeight: 650, fontVariantNumeric: "tabular-nums" }}>{formatInr(c.profit)}</div>
                   </div>
                   <p className="muted" style={{ fontSize: "0.8rem", margin: "0.6rem 0 0" }}>
                     {c.linkCount} link(s) · {c.providerCount} provider(s) ·{" "}
@@ -253,7 +252,7 @@ export default async function DashboardPage() {
               <ul className="list-plain">
                 {data.concentration.providers.map((p) => (
                   <li key={p.provider}>
-                    {p.provider}: <strong>{inr(p.amount)}</strong> ({p.sharePct}%)
+                    {p.provider}: <strong>{formatInr(p.amount)}</strong> ({p.sharePct}%)
                     {p.riskAlert && ` ⚠ concentration risk`}
                   </li>
                 ))}
@@ -311,8 +310,8 @@ export default async function DashboardPage() {
               <ul className="list-plain">
                 {data.recentRevenueEvents.map((event) => (
                   <li key={event.id} className="overflow-safe">
-                    {event.provider} · {event.eventType} · <strong>{inr(event.value)}</strong> {event.currency} · {event.status}
-                    {event.netProfit !== null ? ` · profit ${inr(event.netProfit)}` : ""} · <span className="muted">{event.occurredAt}</span>
+                    {event.provider} · {event.eventType} · <strong>{formatInr(event.value)}</strong> {event.currency} · {event.status}
+                    {event.netProfit !== null ? ` · profit ${formatInr(event.netProfit)}` : ""} · <span className="muted">{event.occurredAt}</span>
                   </li>
                 ))}
               </ul>
