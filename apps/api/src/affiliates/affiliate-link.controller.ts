@@ -24,6 +24,7 @@ export class AffiliateLinkController {
       userAgent: req.headers["user-agent"] ? String(req.headers["user-agent"]) : undefined,
       referrer: req.headers.referer ? String(req.headers.referer) : undefined,
     });
+    res.setHeader("Referrer-Policy", "no-referrer");
     return res.redirect(302, destination);
   }
 
