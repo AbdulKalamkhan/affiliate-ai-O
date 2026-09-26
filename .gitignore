@@ -21,6 +21,10 @@ npm-debug.log*
 # coverage
 coverage/
 
+# local tooling / runtime state (never commit)
+.kilo/
+db/backups/
+
 # os / editor
 .DS_Store
 Thumbs.db

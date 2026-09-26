@@ -21,6 +21,7 @@
     "db:restore-test": "node scripts/db-restore-test.mjs"
   },
   "devDependencies": {
+    "postcss": "8.5.28",
     "turbo": "^2.5.0",
     "typescript": "^5.7.0"
   },
@@ -28,6 +29,11 @@
   "engines": {
     "node": ">=20",
     "npm": ">=10"
+  },
+  "overrides": {
+    "next": {
+      "postcss": "8.5.28"
+    }
   },
   "allowScripts": {
     "@prisma/client@6.19.3": true,
