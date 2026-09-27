@@ -1,6 +1,5 @@
 import { Injectable, Module, type OnApplicationBootstrap } from "@nestjs/common";
 
-import { ContentAssetModule } from "../content-assets/content-asset.module";
 import { ContentQaController } from "./content-qa.controller";
 import { ContentQaService } from "./content-qa.service";
 import { PublishApprovalService } from "./publish-approval.service";
@@ -31,8 +30,11 @@ class LegacyPublishApprovalMigration implements OnApplicationBootstrap {
   }
 }
 
+// ContentQaModule must NOT import ContentAssetModule: ContentAssetModule already
+// imports this one for the QA gate, so importing back would create a circular
+// module dependency. The QA engine only needs the database, which both modules
+// already share.
 @Module({
-  imports: [ContentAssetModule],
   controllers: [ContentQaController],
   providers: [ContentQaService, PublishApprovalService, LegacyPublishApprovalMigration],
   exports: [ContentQaService, PublishApprovalService],

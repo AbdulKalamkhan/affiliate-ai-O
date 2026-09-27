@@ -5,9 +5,8 @@ import { ContentAssetService } from "./content-asset.service";
 import { ContentQaModule } from "../content-qa/content-qa.module";
 
 @Module({
-  // ContentQaModule is imported for the ContentQaService side of the QA gate;
-  // the publish-approval service is reached through the module's own provider,
-  // so the gate consults approval RECORDS rather than any hardcoded id list.
+  // Both QA providers (engine + publish-approval records) come from here, so the
+  // publish gate consults approval RECORDS rather than any hardcoded id list.
   imports: [ContentQaModule],
   controllers: [ContentAssetController],
   providers: [ContentAssetService],
