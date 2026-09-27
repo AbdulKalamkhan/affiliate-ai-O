@@ -24,12 +24,26 @@ export const MARKETPLACE_CAPABILITIES = [
 ] as const;
 export type MarketplaceCapability = (typeof MARKETPLACE_CAPABILITIES)[number];
 
-export const CONNECTION_STATES = ["not_connected", "ready_for_connection", "connected", "error"] as const;
+/**
+ * Connection state, deliberately more granular than a boolean.
+ *
+ * The distinction that matters: credentials sitting in the environment do NOT
+ * make a marketplace connected. A deployment can hold a full set of
+ * `AMAZON_*` variables and still have never spoken to the platform.
+ */
+export const CONNECTION_STATES = [
+  "not_connected",
+  "ready_for_connection",
+  "configured_not_verified",
+  "connected",
+  "error",
+] as const;
 export type ConnectionState = (typeof CONNECTION_STATES)[number];
 
 /** Normalized error taxonomy so callers never depend on a provider's shape. */
 export type AdapterErrorCode =
   | "NOT_CONNECTED"
+  | "NOT_VERIFIED"
   | "UNSUPPORTED_CAPABILITY"
   | "INVALID_INPUT"
   | "AUTH_FAILED"
@@ -132,10 +146,38 @@ export abstract class NotConnectedMarketplaceAdapter implements MarketplaceAdapt
     return false;
   }
 
+  /**
+   * True when every credential name is present in the environment.
+   *
+   * This is deliberately weak evidence. It only proves the deployment was GIVEN
+   * credentials, never that they are valid or that the platform was ever
+   * reached. Callers must surface it as "configured but not verified" and must
+   * not upgrade it to a connection claim.
+   */
+  isCredentialConfigured(): boolean {
+    return this.requiredEnvNames.every((name) => name in process.env);
+  }
+
+  /**
+   * Raise the honest error for a capability that cannot run.
+   *
+   * Two different failures are distinguished, because they are different
+   * problems for the Owner to solve:
+   *  - no credentials at all          => NOT_CONNECTED (go and configure it)
+   *  - credentials present, unproven  => NOT_VERIFIED (go and prove it works)
+   */
   protected unavailable(capability: string): MarketplaceError {
+    const names = this.requiredEnvNames.join(", ") || "none configured";
+    if (this.isCredentialConfigured()) {
+      return new MarketplaceError(
+        "NOT_VERIFIED",
+        `${this.displayName} has credentials configured (${names}) but its connection has never been verified against a live ${this.marketplace} API, so ${capability} cannot be claimed`,
+        false,
+      );
+    }
     return new MarketplaceError(
       "NOT_CONNECTED",
-      `${this.displayName} is not connected: ${capability} requires live ${this.marketplace} credentials (${this.requiredEnvNames.join(", ") || "none configured"})`,
+      `${this.displayName} is not connected: ${capability} requires live ${this.marketplace} credentials (${names})`,
       false,
     );
   }

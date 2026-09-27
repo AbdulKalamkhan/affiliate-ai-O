@@ -42,7 +42,27 @@ export const ANONYMOUS_PRINCIPAL: Principal = {
   authMethod: "api_key",
 };
 
+/**
+ * Principal used when a request somehow reaches business logic with no
+ * principal attached at all (a direct call in a test, a new context, a guard
+ * that did not run). It fails CLOSED: identity is unknown and the role can
+ * authorize nothing.
+ *
+ * It deliberately does NOT fall back to `API_KEY_PRINCIPAL`. That constant
+ * carries `role: "owner"`, so an unset principal would silently promote an
+ * unattributable request to the owner — the exact forgery this file exists to
+ * prevent. `api-key.guard.ts` sets a principal on every request (owner for an
+ * authenticated call, anonymous for a public one), so in production this branch
+ * is unreachable; it exists so that a future code path that forgets to set a
+ * principal degrades to "nobody" rather than "owner".
+ */
+export const UNRESOLVED_PRINCIPAL: Principal = {
+  id: "unresolved",
+  role: "viewer",
+  authMethod: "api_key",
+};
+
 export const CurrentPrincipal = createParamDecorator((_data: unknown, context: ExecutionContext): Principal => {
   const request = context.switchToHttp().getRequest<{ [PRINCIPAL_KEY]?: Principal }>();
-  return request[PRINCIPAL_KEY] ?? API_KEY_PRINCIPAL;
+  return request[PRINCIPAL_KEY] ?? UNRESOLVED_PRINCIPAL;
 });

@@ -248,6 +248,16 @@ export interface InventorySnapshot {
   available: number;
   reserved: number;
   sold: number;
+  /**
+   * Whether these numbers are a real measurement or an absence of measurement.
+   *
+   * The invariant arithmetic below MUST treat a missing row as zero, because
+   * assuming unknown stock is zero is the safe direction (it cannot oversell).
+   * But reporting that as `available: 0` is a lie of a different kind: it claims
+   * someone verified the shelf is empty. `evidenceState: "unknown"` lets the API
+   * tell the caller those numbers exist only to make the arithmetic safe.
+   */
+  evidenceState: "known" | "unknown";
 }
 
 export interface InventoryAdjustment {
@@ -274,6 +284,8 @@ export const applyInventoryAdjustment = (
     available: current.available + (delta.available ?? 0),
     reserved: current.reserved + (delta.reserved ?? 0),
     sold: current.sold + (delta.sold ?? 0),
+    // An adjustment produces a new recorded row, so the result is now measured.
+    evidenceState: "known",
   };
   if (next.available < 0) {
     return {

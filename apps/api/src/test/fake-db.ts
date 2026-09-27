@@ -1,5 +1,24 @@
 import type { DbClient, DbTransactionClient } from "../db/db-client";
 
+/**
+ * Mirror of Prisma's "record not found" failure.
+ *
+ * Real Prisma 6 THROWS P2025 when an `update`/`delete` filter matches no row. The
+ * fake previously returned `null` instead, which made every compare-and-swap
+ * guard in the automation queue look exercised while being unreachable in
+ * production — a lost CAS race aborted the whole claim batch instead of skipping
+ * one job. Production and test now fail the same way.
+ */
+class FakeRecordNotFoundError extends Error {
+  readonly code = "P2025";
+  constructor(model: string) {
+    super(
+      `\nInvalid \`prisma.${model}.update()\` invocation: An operation failed because it depends on one or more records that were required but not found. RecordNotFoundError: No ${model} record was found for a conditional update.`,
+    );
+    this.name = "PrismaClientKnownRequestError";
+  }
+}
+
 export interface FakeRow {
   id: string;
   [key: string]: unknown;
@@ -12,6 +31,8 @@ export interface FakeDbResult {
   transactions: { committed: number; rolledBack: number };
   /** Force the next $transaction to reject, to prove a money path is atomic. */
   failNextTransaction(error?: Error): void;
+  /** Prisma's P2025 error class, so specs can assert the CAS path realistically. */
+  RecordNotFound: new (model: string) => Error;
 }
 
 interface FindOptions {
@@ -338,9 +359,10 @@ export function makeFakeDb(): FakeDbResult {
       data: Record<string, unknown>;
     }): Promise<FakeRow | null> => {
       const list = ensure(name);
-      // Matches real Prisma: `where` may address any unique field (id, key, ...).
+      // Matches real Prisma: `where` may address any unique field (id, key, ...),
+      // and a filter that matches NO row raises P2025 rather than returning null.
       const index = list.findIndex((r) => matches(r, where));
-      if (index === -1) return null;
+      if (index === -1) throw new FakeRecordNotFoundError(name);
       // Validate BEFORE writing, and roll back on violation, so a failed update
       // never leaves a half-applied row behind (real Prisma rejects the whole
       // statement).
@@ -450,5 +472,6 @@ export function makeFakeDb(): FakeDbResult {
     failNextTransaction(error = new Error("transaction failed")) {
       failNextTransaction = error;
     },
+    RecordNotFound: FakeRecordNotFoundError,
   };
 }

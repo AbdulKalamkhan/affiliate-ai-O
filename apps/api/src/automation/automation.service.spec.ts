@@ -274,6 +274,54 @@ describe("AutomationService", () => {
       expect(second).toHaveLength(0);
     });
 
+    it("skips only the job lost to a race and still claims the rest of the batch", async () => {
+      // Reproduces the real production race: `claimDue` reads a batch of queued
+      // jobs, and a competing worker claims one of them in the window before this
+      // worker's compare-and-swap runs.
+      //
+      // Prisma raises P2025 when the CAS filter matches nothing. Before the fix
+      // that error escaped the loop and aborted the ENTIRE batch, so a single
+      // contended job silently starved every other due job behind it. The claim
+      // must be a skip, not a crash.
+      await service.enqueue({ handler: "report.daily", idempotencyKey: "a" }, OWNER);
+      await service.enqueue({ handler: "report.daily", idempotencyKey: "b" }, OWNER);
+      await service.enqueue({ handler: "report.daily", idempotencyKey: "c" }, OWNER);
+
+      const realFindMany = db.db.automationJob.findMany.bind(db.db.automationJob);
+      let stolen = false;
+      (db.db.automationJob as { findMany: typeof realFindMany }).findMany = (async (
+        args: Parameters<typeof realFindMany>[0],
+      ) => {
+        const rows = await realFindMany(args);
+        // A competing worker steals the first candidate after this worker has
+        // already read the batch.
+        if (!stolen && rows.length > 1) {
+          stolen = true;
+          await realFindMany({ where: { id: rows[0].id as string } });
+          db.rows.automationJob = db.rows.automationJob.map((r) =>
+            r.id === rows[0].id
+              ? {
+                  ...r,
+                  status: "running",
+                  lockedBy: "worker-stealer",
+                  attemptCount: Number(r.attemptCount ?? 0) + 1,
+                }
+              : r,
+          );
+        }
+        return rows;
+      }) as typeof realFindMany;
+
+      const claimed = await service.claimDue("worker-a", 5);
+
+      expect(claimed).toHaveLength(2);
+      expect(claimed.map((c) => c.id)).not.toContain(
+        db.rows.automationJob!.find((r) => r.lockedBy === "worker-stealer")?.id,
+      );
+      // The stolen job keeps exactly one attempt: the thief's, not a double count.
+      expect(db.rows.automationJob!.find((r) => r.lockedBy === "worker-stealer")?.attemptCount).toBe(1);
+    });
+
     it("does not re-claim a running job", async () => {
       await service.enqueue({ handler: "report.daily" }, OWNER);
       await service.claimDue("worker-a", 1);

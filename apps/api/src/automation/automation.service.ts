@@ -28,6 +28,7 @@ import { prisma } from "@ai-os/database";
 
 import type { DbClient } from "../db/db-client";
 import { DB_CLIENT } from "../db/tokens";
+import { casUpdate } from "./cas";
 import type { Principal } from "../security/principal";
 import {
   DEFAULT_MAX_ATTEMPTS,
@@ -331,17 +332,21 @@ export class AutomationService {
       const runAt = new Date(candidate.runAt as Date);
       if (runAt.getTime() > now.getTime()) continue;
       // The `status: "queued"` in the update `where` is the compare-and-swap:
-      // if another worker claimed it first, the update matches nothing.
-      const updated = await this.client.automationJob.update({
-        where: { id: candidate.id as string, status: "queued" },
-        data: {
-          status: "running",
-          lockedAt: now,
-          lockedBy: workerId,
-          startedAt: candidate.startedAt ?? now,
-          attemptCount: Number(candidate.attemptCount ?? 0) + 1,
-        },
-      });
+      // if another worker claimed it first, the filter matches no row and Prisma
+      // raises P2025. `casUpdate` converts that into `null` so a lost race skips
+      // just this job instead of aborting the whole batch.
+      const updated = await casUpdate(() =>
+        this.client.automationJob.update({
+          where: { id: candidate.id as string, status: "queued" },
+          data: {
+            status: "running",
+            lockedAt: now,
+            lockedBy: workerId,
+            startedAt: candidate.startedAt ?? now,
+            attemptCount: Number(candidate.attemptCount ?? 0) + 1,
+          },
+        }),
+      );
       if (updated) {
         const attempt = await this.client.automationAttempt.create({
           data: {
@@ -371,17 +376,19 @@ export class AutomationService {
     opts: { workerId?: string; commandId?: string | null } = {},
   ): Promise<AutomationJobView> {
     const now = new Date();
-    const job = await this.client.automationJob.update({
-      where: { id: jobId, status: "running" },
-      data: {
-        status: "succeeded",
-        finishedAt: now,
-        lockedAt: null,
-        lockedBy: null,
-        lastError: null,
-        output: asJson(output),
-      },
-    });
+    const job = await casUpdate(() =>
+      this.client.automationJob.update({
+        where: { id: jobId, status: "running" },
+        data: {
+          status: "succeeded",
+          finishedAt: now,
+          lockedAt: null,
+          lockedBy: null,
+          lastError: null,
+          output: asJson(output),
+        },
+      }),
+    );
     if (!job) throw new NotFoundException(`job ${jobId} is not running`);
     await this.closeAttempt(jobId, now, { status: "succeeded", output });
     await this.audit(job.commandId as string | null, "automation_job", jobId, "succeeded", opts.workerId ?? WORKER_ACTOR, {
@@ -418,16 +425,18 @@ export class AutomationService {
       error: message,
     });
 
-    const job = await this.client.automationJob.update({
-      where: { id: jobId },
-      data: {
-        status: decision.nextStatus,
-        lastError: message,
-        ...(decision.outcome === "retry"
-          ? { runAt: decision.runAt, lockedAt: null, lockedBy: null }
-          : { finishedAt: now, lockedAt: null, lockedBy: null }),
-      },
-    });
+    const job = await casUpdate(() =>
+      this.client.automationJob.update({
+        where: { id: jobId },
+        data: {
+          status: decision.nextStatus,
+          lastError: message,
+          ...(decision.outcome === "retry"
+            ? { runAt: decision.runAt, lockedAt: null, lockedBy: null }
+            : { finishedAt: now, lockedAt: null, lockedBy: null }),
+        },
+      }),
+    );
     if (!job) throw new NotFoundException(`job ${jobId} not found`);
 
     await this.closeAttempt(jobId, now, { status: "failed", error: message });
@@ -502,21 +511,23 @@ export class AutomationService {
     }
     const generation = Number(job.replayCount ?? 0) + 1;
     const replayKey = `${jobId}#replay:${generation}`;
-    const updated = await this.client.automationJob.update({
-      where: { id: jobId },
-      data: {
-        status: "queued",
-        runAt: new Date(),
-        attemptCount: 0,
-        maxAttempts: opts.maxAttempts ?? Number(job.maxAttempts ?? DEFAULT_MAX_ATTEMPTS),
-        lastError: null,
-        finishedAt: null,
-        lockedAt: null,
-        lockedBy: null,
-        idempotencyKey: replayKey,
-        replayCount: generation,
-      },
-    });
+    const updated = await casUpdate(() =>
+      this.client.automationJob.update({
+        where: { id: jobId },
+        data: {
+          status: "queued",
+          runAt: new Date(),
+          attemptCount: 0,
+          maxAttempts: opts.maxAttempts ?? Number(job.maxAttempts ?? DEFAULT_MAX_ATTEMPTS),
+          lastError: null,
+          finishedAt: null,
+          lockedAt: null,
+          lockedBy: null,
+          idempotencyKey: replayKey,
+          replayCount: generation,
+        },
+      }),
+    );
     if (!updated) throw new NotFoundException(`job ${jobId} not found`);
     await this.audit(job.commandId as string | null, "automation_job", jobId, "replayed", opts.principal.id, {
       handler: job.handler,
@@ -624,10 +635,12 @@ export class AutomationService {
     const released: string[] = [];
     for (const job of held) {
       if ((job.lockedBy as string | null) !== workerId) continue;
-      const updated = await this.client.automationJob.update({
-        where: { id: job.id as string, status: "running", lockedBy: workerId },
-        data: { status: "queued", lockedAt: null, lockedBy: null, runAt: now },
-      });
+      const updated = await casUpdate(() =>
+        this.client.automationJob.update({
+          where: { id: job.id as string, status: "running", lockedBy: workerId },
+          data: { status: "queued", lockedAt: null, lockedBy: null, runAt: now },
+        }),
+      );
       if (!updated) continue;
       const attempts = await this.client.automationAttempt.findMany({ where: { jobId: job.id as string } });
       for (const attempt of attempts.filter((a) => a.status === "running")) {

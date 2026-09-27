@@ -1,7 +1,30 @@
-import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, HttpException, Param, Post, Query } from "@nestjs/common";
 
 import { MarketplaceRegistryService } from "./marketplace/marketplace-registry.service";
 import { SellerService } from "./seller.service";
+import { MarketplaceError, type Marketplace } from "./marketplace/marketplace-adapter";
+import { CurrentPrincipal, type Principal } from "../security/principal";
+
+/**
+ * Map a normalized adapter failure to an honest HTTP status.
+ *
+ * A missing credential and an unverified credential are different problems, so
+ * they get different statuses: 428 Precondition Required means "configure it",
+ * 409 Conflict means "you have it configured but it has never been proven".
+ * Neither is a 200, and neither leaks a credential value.
+ */
+function marketplaceErrorStatus(error: unknown): { status: number; code: string; message: string } {
+  if (error instanceof MarketplaceError) {
+    const status =
+      error.code === "NOT_CONNECTED" ? 428 : error.code === "NOT_VERIFIED" ? 409 : 502;
+    return { status, code: error.code, message: error.message };
+  }
+  return {
+    status: 500,
+    code: "PROVIDER_ERROR",
+    message: error instanceof Error ? error.message : "unknown error",
+  };
+}
 
 @Controller("seller")
 export class SellerController {
@@ -113,8 +136,11 @@ export class SellerController {
       totalAmount: number;
       items?: { sku?: string; title: string; quantity: number; unitPrice: number }[];
     },
+    @CurrentPrincipal() principal: Principal,
   ) {
-    return this.service.ingestOrder(body);
+    // `actor` comes from the authenticated principal; a body value cannot name
+    // someone else in the money-write audit row.
+    return this.service.ingestOrder({ ...body, actor: principal.id });
   }
 
   // -------------------------------------------------------------- returns
@@ -136,8 +162,9 @@ export class SellerController {
       reason?: string;
       status?: string;
     },
+    @CurrentPrincipal() principal: Principal,
   ) {
-    return this.service.recordReturn(body);
+    return this.service.recordReturn({ ...body, actor: principal.id });
   }
 
   // ---------------------------------------------------------- settlement
@@ -162,8 +189,9 @@ export class SellerController {
       otherCosts?: number;
       status?: string;
     },
+    @CurrentPrincipal() principal: Principal,
   ) {
-    return this.service.recordSettlement(body);
+    return this.service.recordSettlement({ ...body, actor: principal.id });
   }
 
   // -------------------------------------------------------------- sellers
@@ -204,19 +232,25 @@ export class SellerController {
   }
 
   @Post("marketplaces/:marketplace/sync")
-  sync(
+  async sync(
     @Param("marketplace") marketplace: string,
-    @Body() body: { capability?: string },
+    @Body() body: { skus?: string[] },
   ) {
-    const capability = (body?.capability ?? "syncCatalog") as "syncCatalog";
-    return this.marketplaces
-      .execute(marketplace as never, capability, (adapter) =>
-        adapter.syncCatalog((body as { skus?: string[] }).skus ?? []),
-      )
-      .catch((error: unknown) => ({
-        synced: 0,
-        status: "not_connected",
-        error: error instanceof Error ? error.message : "unknown error",
-      }));
+    // A failure here is a real failure, so it propagates as a non-2xx with the
+    // adapter's normalized code. Swallowing it into `{ synced: 0, status:
+    // "not_connected" }` with HTTP 200 reported a successful request that synced
+    // nothing, and invented a third status vocabulary that matched neither
+    // ConnectionState nor AdapterErrorCode.
+    try {
+      const result = await this.marketplaces.execute(
+        marketplace as Marketplace,
+        "syncCatalog",
+        (adapter) => adapter.syncCatalog(body?.skus ?? []),
+      );
+      return { marketplace, capability: "syncCatalog", ...result };
+    } catch (error) {
+      const mapped = marketplaceErrorStatus(error);
+      throw new HttpException(mapped, mapped.status);
+    }
   }
 }

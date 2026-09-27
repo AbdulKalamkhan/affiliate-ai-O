@@ -60,10 +60,21 @@ export class MarketplaceRegistryService {
         const credentialsPresent = adapter.isConfigured();
         // A failed/unavailable live probe must never be reported as connected.
         const connected = await adapter.isLive().catch(() => false);
+        // Credentials present but never proven against the live API is its own
+        // state. Reporting it as merely "ready_for_connection" would understate
+        // what the Owner has already done, and reporting it as "connected" would
+        // overstate what has been proven.
+        const state: ConnectionState = connected
+          ? "connected"
+          : credentialsPresent
+            ? "configured_not_verified"
+            : missing.length > 0
+              ? "not_connected"
+              : "ready_for_connection";
         return {
           marketplace: adapter.marketplace,
           displayName: adapter.displayName,
-          state: connected ? ("connected" as const) : ("ready_for_connection" as const),
+          state,
           connected,
           credentialsPresent,
           implementation: "implemented" as const,
@@ -74,10 +85,10 @@ export class MarketplaceRegistryService {
             ? null
             : missing.length > 0
               ? `set ${missing.join(", ")} as server env vars to enable a live connection`
-              : `credentials present but no live ${adapter.displayName} transport is implemented yet`,
+              : `credentials present but no live ${adapter.displayName} transport is implemented yet, so the connection remains UNVERIFIED`,
           note: connected
             ? null
-            : "live provider calls are not implemented; every capability fails with NOT_CONNECTED",
+            : "live provider calls are not implemented; every capability fails with NOT_CONNECTED or NOT_VERIFIED and never returns fabricated data",
         };
       }),
     );
@@ -101,7 +112,17 @@ export class MarketplaceRegistryService {
         false,
       );
     }
-    if (!adapter.isConfigured()) {
+    // Gate on a VERIFIED live connection, not on the presence of env var names.
+    // A deployment holding every credential is still not connected until the
+    // live probe succeeds, and must not be reported as such.
+    if (!(await adapter.isLive().catch(() => false))) {
+      if (adapter.isConfigured()) {
+        throw new MarketplaceError(
+          "NOT_VERIFIED",
+          `${adapter.displayName} has credentials configured but no verified live connection; ${capability} cannot be claimed`,
+          false,
+        );
+      }
       throw new MarketplaceError(
         "NOT_CONNECTED",
         `${adapter.displayName} is not connected: ${capability} requires live credentials (${adapter.requiredEnvNames.join(", ")})`,

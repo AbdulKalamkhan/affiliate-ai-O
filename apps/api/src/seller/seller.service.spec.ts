@@ -99,8 +99,15 @@ describe("listing generation and validation", () => {
 });
 
 describe("inventory invariants", () => {
+  const measured = (available: number, reserved: number, sold: number) => ({
+    available,
+    reserved,
+    sold,
+    evidenceState: "known" as const,
+  });
+
   it("rejects an adjustment that would make stock negative", () => {
-    const result = applyInventoryAdjustment({ available: 2, reserved: 0, sold: 0 }, { available: -5 });
+    const result = applyInventoryAdjustment(measured(2, 0, 0), { available: -5 });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.snapshot.available).toBe(2);
@@ -109,16 +116,27 @@ describe("inventory invariants", () => {
   });
 
   it("applies a valid deduction", () => {
-    const result = applyInventoryAdjustment({ available: 10, reserved: 0, sold: 0 }, { available: -3, sold: 3 });
+    const result = applyInventoryAdjustment(measured(10, 0, 0), { available: -3, sold: 3 });
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.snapshot).toEqual({ available: 7, reserved: 0, sold: 3 });
+      expect(result.snapshot).toEqual(measured(7, 0, 3));
     }
   });
 
   it("rejects negative reserved or sold", () => {
-    const result = applyInventoryAdjustment({ available: 5, reserved: 1, sold: 1 }, { reserved: -2 });
+    const result = applyInventoryAdjustment(measured(5, 1, 1), { reserved: -2 });
     expect(result.ok).toBe(false);
+  });
+
+  it("treats an unmeasured snapshot as safe-for-arithmetic but flags it as unknown", () => {
+    // No inventory row exists yet, so the numbers are zero only so the
+    // non-negative invariant can be evaluated. The result must not claim the
+    // shelf was measured empty.
+    const result = applyInventoryAdjustment(measured(0, 0, 0), { available: 1 });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.snapshot.evidenceState).toBe("known");
+    }
   });
 });
 
@@ -365,8 +383,34 @@ describe("marketplace adapters", () => {
       // No live transport exists, so `connected` is false for every provider
       // regardless of whether credential env var NAMES happen to be present.
       expect(entry.connected).toBe(false);
-      expect(entry.state).toBe("ready_for_connection");
+      // With no credentials in the environment the honest state is
+      // "not_connected", not the vaguer "ready_for_connection" — nothing is
+      // ready until it has the credentials to connect with.
+      expect(entry.state).toBe("not_connected");
       expect(entry.ownerAction).not.toBeNull();
+    }
+  });
+
+  it("distinguishes configured-but-unverified from not-connected", async () => {
+    const adapter = new AmazonSellerAdapter();
+    const names = [...adapter.requiredEnvNames];
+    const previous = names.map((name) => [name, process.env[name]] as const);
+    for (const name of names) process.env[name] = "set-but-never-verified-against-a-live-api";
+    try {
+      // Credentials present is NOT a connection. It is its own state, because
+      // "you have keys" and "your keys work" are different facts.
+      expect(adapter.isConfigured()).toBe(true);
+      const [status] = await new MarketplaceRegistryService().status();
+      expect(status.credentialsPresent).toBe(true);
+      expect(status.connected).toBe(false);
+      expect(status.state).toBe("configured_not_verified");
+      // And the capability error names the real problem: unproven, not absent.
+      await expect(adapter.getOrders()).rejects.toMatchObject({ code: "NOT_VERIFIED" });
+    } finally {
+      for (const [name, value] of previous) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
     }
   });
 

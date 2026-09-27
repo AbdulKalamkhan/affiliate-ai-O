@@ -17,6 +17,20 @@ import {
   type ProfitBreakdown,
 } from "./seller-domain";
 
+/**
+ * Runtime guard for an inbound money value.
+ *
+ * A value may be `undefined` (component not stated => store NULL / UNKNOWN) but
+ * if it IS stated it must be a real, finite number. Rejecting `NaN` matters:
+ * `Number.isFinite` is the only thing standing between a malformed body and a
+ * NOT NULL Decimal column, and `typeof NaN === "number"` would otherwise pass.
+ */
+function requireVerifiedMoney(field: string, value: unknown): asserts value is number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new BadRequestException(`${field} must be a verified finite number`);
+  }
+}
+
 @Injectable()
 export class SellerService {
   constructor(@Inject(DB_CLIENT) private readonly client: DbClient = prisma as DbClient) {}
@@ -157,9 +171,12 @@ export class SellerService {
     });
     const row = rows[0];
     return {
+      // Treat a missing row as zero for the invariant arithmetic (fails safe
+      // against oversell) but never claim it was measured.
       available: Number(row?.availableQty ?? 0),
       reserved: Number(row?.reservedQty ?? 0),
       sold: Number(row?.soldQty ?? 0),
+      evidenceState: row ? "known" : "unknown",
     };
   }
 
@@ -340,23 +357,69 @@ export class SellerService {
     reason?: string;
     currency?: string;
     raw?: Prisma.InputJsonValue;
+    actor?: string;
   }) {
     if (typeof input.amount !== "number" || !Number.isFinite(input.amount)) {
       throw new BadRequestException("amount must be a verified number");
     }
     await this.getSeller(input.sellerId);
-    return this.client.sellerReturn.create({
-      data: {
-        sellerId: input.sellerId,
-        platform: input.platform,
-        amount: input.amount,
-        status: input.status ?? "requested",
-        ...(input.externalId ? { externalId: input.externalId } : {}),
-        ...(input.orderId ? { orderId: input.orderId } : {}),
-        ...(input.reason ? { reason: input.reason } : {}),
-        ...(input.raw !== undefined ? { raw: input.raw } : {}),
-        currency: input.currency ?? CURRENCY,
-      },
+    const actor = input.actor?.trim() || "system";
+    const externalId = input.externalId?.trim();
+
+    // A return is money moving BACK to the customer, so it gets the same
+    // treatment as an order: the row and its audit entry commit together, and a
+    // replayed marketplace webhook cannot double-count a refund. Previously this
+    // was a bare `create` with no transaction, no audit row and no idempotency,
+    // which meant a retried webhook silently duplicated refund money.
+    return this.client.$transaction(async (tx) => {
+      if (externalId) {
+        const existing = await tx.sellerReturn.findMany({
+          where: { platform: input.platform, externalId },
+          take: 1,
+        });
+        if (existing[0]) {
+          return {
+            created: false as const,
+            ret: existing[0],
+            reason: "return already recorded (idempotent)",
+          };
+        }
+      }
+
+      const created = await tx.sellerReturn.create({
+        data: {
+          sellerId: input.sellerId,
+          platform: input.platform,
+          amount: input.amount,
+          status: input.status ?? "requested",
+          ...(externalId ? { externalId } : {}),
+          ...(input.orderId ? { orderId: input.orderId } : {}),
+          ...(input.reason ? { reason: input.reason } : {}),
+          ...(input.raw !== undefined ? { raw: input.raw } : {}),
+          currency: input.currency ?? CURRENCY,
+        },
+      });
+
+      await tx.bossAuditLog.create({
+        data: {
+          commandId: null,
+          actor,
+          entityType: "seller_return",
+          entityId: created.id,
+          verb: "money_write",
+          detail: {
+            reason: "seller return recorded",
+            platform: created.platform,
+            externalId: created.externalId,
+            amount: input.amount,
+            currency: created.currency,
+            orderId: input.orderId ?? null,
+            status: created.status,
+          },
+        },
+      });
+
+      return { created: true as const, ret: created };
     });
   }
 
@@ -391,6 +454,22 @@ export class SellerService {
     actor?: string;
   }) {
     await this.getSeller(input.sellerId);
+
+    // Money fields are validated at runtime, not just by TypeScript. There is no
+    // global ValidationPipe, so a body of `{"totalAmount":"abc"}` or `null` would
+    // otherwise reach a NOT NULL Decimal column. Order and return ingestion
+    // already validate their amounts; settlements did not.
+    requireVerifiedMoney("totalAmount", input.totalAmount);
+    for (const [key, value] of [
+      ["fees", input.fees],
+      ["refunds", input.refunds],
+      ["cogs", input.cogs],
+      ["shipping", input.shipping],
+      ["otherCosts", input.otherCosts],
+    ] as const) {
+      if (value !== undefined) requireVerifiedMoney(key, value);
+    }
+
     const profit: ProfitBreakdown = calculateNetProfit({
       revenue: input.totalAmount,
       cogs: input.cogs ?? UNKNOWN,
@@ -437,6 +516,16 @@ export class SellerService {
             netAmount: profit.netProfit,
             profitState: profit.isComplete ? "complete" : "unknown",
             currency: created.currency,
+            // The full derivation, so a "complete" net profit can be
+            // re-derived from the audit trail alone. cogs/shipping/otherCosts
+            // are inputs to the calculation but had no column on the
+            // settlement row, so without this the number was unreproducible
+            // and the "every money write is audited with its full amount
+            // breakdown" claim was false.
+            cogs: input.cogs ?? null,
+            shipping: input.shipping ?? null,
+            otherCosts: input.otherCosts ?? null,
+            unknownComponents: profit.unknownComponents,
           },
         },
       });
