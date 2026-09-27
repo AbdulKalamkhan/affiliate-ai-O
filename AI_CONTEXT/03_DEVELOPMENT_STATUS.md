@@ -142,3 +142,75 @@ automation runtime connected, and Phase-00 remains BLOCKED on genuine Amazon evi
 interpreted backslash escapes, corrupting inline code spans and em dashes). Repaired
 and verified: no U+FFFD replacement characters, no escape damage, legitimate Windows
 paths and `\dt` references preserved.
+
+## AUTOMATION QUEUE + WORKER — IMPLEMENTED AND TESTED 2026-09-27
+
+**What changed (verified by 383 API tests, live built-API probe, and `prisma migrate status`):**
+
+- **Durable queue in the database, not a fake broker.** `AutomationJob` and
+  `AutomationAttempt` tables hold the whole lifecycle: `queued -> running -> succeeded`
+  or `failed`/`dead_letter`/`cancelled`, with `attemptCount`/`maxAttempts`, `runAt`
+  backoff, `lockedAt`/`lockedBy` ownership, per-attempt error and duration, and an
+  explicit `@@unique([handler, idempotencyKey])` index.
+- **Real compare-and-swap claiming.** `claimDue` only claims a job whose status is
+  still `queued` and whose `runAt` has passed, so two workers can never take the same
+  job; the `status` field in the update `where` clause is the serialiser.
+- **The worker is OFF by default.** `AUTOMATION_WORKER_ENABLED` must be explicitly
+  `true`; otherwise `/automation/status` reports `enabled: false` and never claims a
+  broker connection. No Redis, BullMQ or n8n is connected or claimed anywhere.
+- **Fail-closed autonomy.** The queue ceiling comes from `AUTOMATION_AUTONOMY_LEVEL`
+  and defaults to `0`, so nothing is enqueueable without explicit Owner consent. It
+  is deliberately NOT inherited from Boss command history — a past command is not a
+  standing grant. `/automation/status` lists which handlers are currently blocked.
+- **Honest handlers only.** `report.daily` counts recorded rows and states that no
+  metric was estimated; `revenue.reconcile` reports pending events and reconciles
+  nothing without verified Owner evidence; `action.execute` delegates to the real
+  Boss executor, which re-checks autonomy, approval and terminal action state, so
+  queueing can never bypass policy. `marketplace.sync` is declared but
+  `not_implemented` and dead-letters with an explicit reason rather than faking an
+  external call.
+- **Retry, dead letter and replay.** Retryable failures back off exponentially with
+  jitter; non-retryable failures (unknown or unimplemented handler) dead-letter
+  immediately WITHOUT burning the attempt budget. A reviewed dead letter can be
+  replayed, which resets the budget and issues a fresh idempotency epoch.
+- **Two replay idempotency defects found by the live probe and fixed.** The replay key
+  was derived from the ORIGINAL idempotency key, which both (a) could collide with
+  another job's already-replayed key and raise a real `P2002` against Postgres, and
+  (b) produced the same key on every replay because `attemptCount` resets each time.
+  Replay now uses `<jobId>#replay:<n>` from a monotonic `replayCount` column
+  (migration `20260927083914_automation_job_replay_count`).
+- **Idempotency holds under concurrency, not just sequentially.** Two simultaneous
+  enqueues of the same `(handler, idempotencyKey)` can both miss the dedupe read; the
+  database index rejects the loser with `P2002` and the service now returns the
+  WINNER's job (audited as `enqueue_deduplicated`) instead of surfacing a duplicate-key
+  error to a retrying client. A unique violation that is not an idempotency race is
+  still rethrown rather than swallowed.
+- **Stale-lock recovery AND honest graceful shutdown.** A worker that dies mid-run
+  leaves a stale `running` lock that `recoverStaleLocks` reclaims after
+  `LOCK_TIMEOUT_MS` (5 min). On shutdown the worker stops claiming, drains in-flight
+  handlers up to `AUTOMATION_SHUTDOWN_DRAIN_MS`, and — if the deadline passes —
+  explicitly releases its own locks and closes the open attempt rows as failed, so a
+  job is never left falsely `running`. A CAS on `status`/`lockedBy` means a job
+  another worker has taken over is left untouched.
+
+**Migrations:** `20260927074618_automation_job_queue`,
+`20260927083914_automation_job_replay_count`. `prisma migrate status` = up to date
+(11 migrations).
+
+**Endpoints:** `GET /automation/handlers|status|jobs|jobs/dead-letters|jobs/:id`,
+`POST /automation/jobs`, `POST /automation/jobs/:id/replay`,
+`POST /automation/worker/run-once`. All authenticated; unauthenticated requests
+verified `401` against the running build.
+
+**Live probe result (built `dist/main.js`, real PostgreSQL):** authz 401 fail-closed;
+validation `400`/`403` as designed; triple enqueue `deduplicated=false,true,true` with
+one row; `report.daily` succeeded with real row counts; a re-run claimed nothing;
+`marketplace.sync` dead-lettered on attempt 1/3 without burning retries; replay
+returned `201` with `replayCount=1` and a distinct key; replaying a non-dead-letter
+returned `400`; a 2030-scheduled job stayed `queued` at `attemptCount=0`. Money tables
+and `publishApprovals=1` were unchanged by the probe.
+
+**Honest gaps:** no Redis/BullMQ/n8n, no external marketplace call, no live LLM, and
+the worker is not yet enabled in production. `marketplace.sync` remains
+`not_implemented`. Phase-00 remains BLOCKED on genuine Amazon conversion and
+commission evidence.

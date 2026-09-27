@@ -58,10 +58,62 @@ const DELEGATE_NAMES = {
   sellerReturn: 1,
   sellerSettlement: 1,
   publishApproval: 1,
+  automationJob: 1,
+  automationAttempt: 1,
 } as const;
 
+/**
+ * Composite unique constraints the fake enforces. Without these the fake
+ * silently accepted duplicate `(handler, idempotencyKey)` rows that real
+ * Postgres rejects with P2002, so a replay-key collision only surfaced in a live
+ * database — exactly the class of bug the unit suite must catch.
+ */
+const UNIQUE_CONSTRAINTS: Record<string, string[][]> = {
+  automationJob: [["handler", "idempotencyKey"]],
+};
+
+class FakeUniqueConstraintError extends Error {
+  constructor(table: string, fields: string[]) {
+    super(`Unique constraint failed on the fields: (${fields.map((f) => `"${f}"`).join(",")}) [${table}]`);
+    this.name = "PrismaClientKnownRequestError";
+  }
+}
+
 const matches = (row: FakeRow, where?: Record<string, unknown>): boolean => {  if (!where) return true;
-  return Object.entries(where).every(([key, value]) => row[key] === value);
+  return Object.entries(where).every(([key, value]) => rowMatches(row, key, value));
+};
+
+/**
+ * Supports equality plus the scalar comparators Prisma actually uses for date and
+ * numeric filters (`lte`, `lt`, `gte`, `gt`). Without this the fake silently
+ * ignored `runAt: { lte: now }` and a claim-queue spec would pass for the wrong
+ * reason.
+ */
+const rowMatches = (row: FakeRow, key: string, value: unknown): boolean => {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    if (value instanceof Date) return toTime(row[key]) === value.getTime();
+    return row[key] === value;
+  }
+  const actual = toTime(row[key]);
+  const cmp = value as { lte?: unknown; lt?: unknown; gte?: unknown; gt?: unknown; not?: unknown };
+  if (cmp.not !== undefined) return row[key] !== cmp.not;
+  if (cmp.lte !== undefined) return actual <= toTime(cmp.lte);
+  if (cmp.lt !== undefined) return actual < toTime(cmp.lt);
+  if (cmp.gte !== undefined) return actual >= toTime(cmp.gte);
+  if (cmp.gt !== undefined) return actual > toTime(cmp.gt);
+  return row[key] === value;
+};
+
+const toTime = (value: unknown): number => {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? Number.NaN : parsed;
+  }
+  if (value !== null && typeof value === "object" && "getTime" in (value as { getTime: () => number })) {
+    return (value as { getTime: () => number }).getTime();
+  }
+  return Number(value);
 };
 
 const toNumber = (value: unknown): number => {
@@ -86,12 +138,38 @@ export function makeFakeDb(): FakeDbResult {
 
   const DEFAULTS: Record<string, Record<string, unknown>> = {
     contentAsset: { published: false, disclosureAdded: false },
+    // Mirrors the Prisma schema defaults so a spec that creates a job directly
+    // sees the same state machine the real database enforces.
+    automationJob: {
+      status: "queued",
+      queue: "default",
+      attemptCount: 0,
+      maxAttempts: 3,
+      replayCount: 0,
+    },
   };
 
   const withDefaults = (name: string, data: Record<string, unknown>): Record<string, unknown> => ({
     ...(DEFAULTS[name] ?? {}),
     ...data,
   });
+
+  /**
+   * Enforce the table's declared composite unique constraints. `excludeId`
+   * excludes the row being updated so a no-op update does not self-collide.
+   * A `null` member of a unique tuple is treated as distinct, matching SQL:
+   * multiple rows may have a NULL idempotency key.
+   */
+  const assertUnique = (name: string, candidate: FakeRow, excludeId: string | null) => {
+    for (const fields of UNIQUE_CONSTRAINTS[name] ?? []) {
+      const values = fields.map((f) => candidate[f]);
+      if (values.some((v) => v === null || v === undefined)) continue;
+      const clash = ensure(name).find(
+        (r) => r.id !== excludeId && fields.every((f, i) => r[f] === values[i]),
+      );
+      if (clash) throw new FakeUniqueConstraintError(name, fields);
+    }
+  };
 
   const withCount = (row: FakeRow): FakeRow => {
     const clickCount = ensure("affiliateLinkClick").filter((c) => c.linkId === row.id).length;
@@ -189,6 +267,18 @@ export function makeFakeDb(): FakeDbResult {
       if (!("createdAt" in row)) row.createdAt = nextCreatedAt();
       if (!("capturedAt" in row)) row.capturedAt = nextCreatedAt();
       if (!("grantedAt" in row)) row.grantedAt = nextCreatedAt();
+      if (!("updatedAt" in row)) row.updatedAt = nextCreatedAt();
+      if (!("runAt" in row)) row.runAt = nextCreatedAt();
+      // Nullable columns must read back as `null` (what Prisma returns), not
+      // `undefined` — a spec asserting `toBeNull()` is a real contract check.
+      if (!("startedAt" in row)) row.startedAt = null;
+      if (!("finishedAt" in row)) row.finishedAt = null;
+      if (!("lockedAt" in row)) row.lockedAt = null;
+      if (!("lockedBy" in row)) row.lockedBy = null;
+      if (!("lastError" in row)) row.lastError = null;
+      if (!("output" in row)) row.output = null;
+      if (!("idempotencyKey" in row)) row.idempotencyKey = null;
+      assertUnique(name, row, null);
       ensure(name).push(row);
       return row;
     },
@@ -248,7 +338,18 @@ export function makeFakeDb(): FakeDbResult {
       // Matches real Prisma: `where` may address any unique field (id, key, ...).
       const index = list.findIndex((r) => matches(r, where));
       if (index === -1) return null;
-      list[index] = { ...list[index], ...data };
+      // Validate BEFORE writing, and roll back on violation, so a failed update
+      // never leaves a half-applied row behind (real Prisma rejects the whole
+      // statement).
+      const merged = { ...list[index], ...data } as FakeRow;
+      const previous = list[index] as FakeRow;
+      list[index] = merged;
+      try {
+        assertUnique(name, merged, previous.id as string);
+      } catch (error) {
+        list[index] = previous;
+        throw error;
+      }
       return list[index];
     },
     delete: async ({ where }: { where: Record<string, unknown> }): Promise<FakeRow | null> => {
@@ -319,6 +420,8 @@ export function makeFakeDb(): FakeDbResult {
     sellerReturn: delegate("sellerReturn"),
     sellerSettlement: delegate("sellerSettlement"),
     publishApproval: delegate("publishApproval"),
+    automationJob: delegate("automationJob"),
+    automationAttempt: delegate("automationAttempt"),
     $transaction: async <T,>(fn: (tx: DbTransactionClient) => Promise<T>): Promise<T> => {
       const forced = failNextTransaction;
       failNextTransaction = null;

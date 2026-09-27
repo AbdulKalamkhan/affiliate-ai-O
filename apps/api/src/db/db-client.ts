@@ -31,6 +31,8 @@ type DbModels = Pick<
   | "sellerReturn"
   | "sellerSettlement"
   | "publishApproval"
+  | "automationJob"
+  | "automationAttempt"
 >;
 
 export type DbTransactionClient = DbModels;

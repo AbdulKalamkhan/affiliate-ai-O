@@ -542,3 +542,72 @@ model PublishApproval {
   @@index([assetId, grantedAt])
   @@map("publish_approvals")
 }
+
+// --- Automation: durable job queue ---
+// A job is a request to run a registered, policy-gated handler later. The queue
+// is a DATABASE, not an in-memory array, so a crash or a redeploy cannot lose
+// work and a job can still be inspected after the fact.
+//
+// HONESTY RULES encoded here:
+//   - `status` is an explicit state machine; nothing is "probably done".
+//   - `attemptCount` is the real number of times a handler was invoked.
+//   - `idempotencyKey` makes a re-enqueue of the same logical work a no-op.
+//   - a job that exhausts `maxAttempts` becomes `dead_letter`, never dropped.
+//   - `lastError` keeps the real failure message; `output` the real result.
+model AutomationJob {
+  id             String    @id @default(cuid())
+  // Registered handler name (see automation-job-registry.ts). An unknown handler
+  // is rejected at enqueue time and never executed.
+  handler        String
+  payload        Json?
+  status         String    @default("queued") // queued | running | succeeded | failed | dead_letter | cancelled
+  queue          String    @default("default")
+  // Attempt history, retained so a dead-lettered job can be diagnosed.
+  attempts       AutomationAttempt[]
+  // Unique per logical unit of work together with the handler: re-enqueueing the
+  // same key returns the existing job instead of creating a duplicate.
+  idempotencyKey String?
+  attemptCount   Int       @default(0)
+  maxAttempts    Int       @default(3)
+  // How many times a human has replayed this job from the dead-letter queue.
+  // Monotonic, so each replay generation gets a distinct idempotency key.
+  replayCount    Int       @default(0)
+  // Next time the job becomes eligible to run (drives retry backoff).
+  runAt          DateTime  @default(now())
+  lockedAt       DateTime?
+  lockedBy       String?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  lastError      String?
+  output         Json?
+  // Who requested the job, and which Boss action (if any) authorised it.
+  requestedBy    String?
+  commandId      String?
+  actionId       String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([handler, idempotencyKey])
+  @@index([status, runAt])
+  @@index([queue, status])
+  @@index([actionId])
+  @@map("automation_jobs")
+}
+
+// One row per execution attempt, kept separate from the job so the retry
+// history — and the reason a job ended up dead-lettered — stays auditable.
+model AutomationAttempt {
+  id         String   @id @default(cuid())
+  jobId      String
+  job        AutomationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  attempt    Int
+  status     String   // running | succeeded | failed
+  error      String?
+  output     Json?
+  durationMs Int?
+  startedAt  DateTime @default(now())
+  finishedAt DateTime?
+
+  @@index([jobId, attempt])
+  @@map("automation_attempts")
+}
