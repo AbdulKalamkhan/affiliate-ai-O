@@ -588,3 +588,65 @@ understate cost and overstate profit.
 clean, api+web builds clean, Prisma schema valid. Mutation check: removing the
 settlement relation mapping fails exactly the 3 COGS specs, confirming they are
 not passing for free.
+
+**Production verification (deployed at `83a30f7`):** `/health` returned 200 with
+`database: ok`, and `/seller/settlements/:id/lines` returned 401 — not 404 —
+which is the expected guarded result and proves the new route is registered in
+the running build. Render's start command is
+`prisma migrate deploy ... && node apps/api/dist/main.js`, so a healthy API is
+itself evidence that migration `20260927125000` applied cleanly. Protected
+response bodies still could not be read without the production `API_KEY`.
+
+## SELLER CONTROL CENTER — IMPLEMENTED + TESTED 2026-09-27
+
+The seller domain had a full API surface (22 routes: overview, accounts,
+products, listings, inventory, orders, returns, settlements, settlement lines,
+permissions, marketplace status) and no user-facing page at all. The Owner
+could not see any of it.
+
+**New page `/seller`** (`apps/web/app/seller/page.tsx`, linked in the top nav).
+Read-only, server-rendered, evidence-first, consistent with the existing dark
+luxury Glassmorphism. Sections: verified connections, seller accounts, listings,
+inventory, orders, returns, settlements with their durable per-component cost
+lines.
+
+Deliberate truthfulness decisions, each of which would have been an easy lie:
+
+- **Order value is only summed when ≥1 order row exists.** An empty ledger
+  renders "Awaiting data", not ₹0.00.
+- **Net profit is marked partial** when any settlement in the set has
+  `netProfit = null`, and the KPI hint says so. A partial sum would overstate
+  profit.
+- **Settlement cost lines are shown per component with their `source`**, so an
+  operator-typed cost is visibly different from a platform-reported one, and a
+  null component renders the literal word `UNKNOWN` rather than ₹0.
+- **Marketplace cards render the adapter's real `ConnectionState`**
+  (`connected` / `configured_not_verified` / `ready_for_connection` /
+  `not_connected`) plus missing env var names and the required Owner action, so
+  the page itself documents what is blocking each integration.
+- **"No orders recorded" states outright that no marketplace connection
+  exists**, so the empty table cannot be misread as a demand signal.
+
+### Honest-over-convenient API fix found while building the page
+
+`GET /seller/overview` returned a **hardcoded `connectedMarketplaces: 0`**. On
+the page that would have rendered as a measured "0 verified connections" while
+credentials were present but unverified — a fact the endpoint had never
+checked. `SellerService.overview()` now counts verified connections from
+`MarketplaceRegistryService.status()` and adds
+`configuredNotVerifiedMarketplaces`, with a status string that distinguishes
+"nothing configured" from "credentials present but nothing verified" from
+"N verified". The registry is an optional constructor dependency so the service
+stays unit-testable with a bare fake DB client; `SellerModule` already provides
+it, and the import is a sibling module so no DI cycle is introduced.
+
+**Verification:** 514/514 API tests (32 suites), 7/7 web, typecheck 4/4, lint
+clean (3/3 packages), api+web builds clean, `/seller` present in the Next build
+output as a dynamic route. Two new specs cover the registry-derived connection
+count and prove that credentials-present-but-unverified is never described as a
+verified connection.
+
+**Not verified:** the page's rendering against live production data still
+requires the server-side `API_KEY` on the web service. Its behaviour is proven
+by typecheck, build and the API contract, not by a live screenshot.
+

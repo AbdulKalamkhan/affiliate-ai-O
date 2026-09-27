@@ -5,6 +5,8 @@ import { prisma } from "@ai-os/database";
 
 import type { DbClient } from "../db/db-client";
 import { DB_CLIENT } from "../db/tokens";
+import { MarketplaceRegistryService } from "./marketplace/marketplace-registry.service";
+import type { MarketplaceStatus } from "./marketplace/marketplace-registry.service";
 import {
   CURRENCY,
   LISTING_STATUSES,
@@ -40,7 +42,14 @@ interface SettlementLineDraft {
 
 @Injectable()
 export class SellerService {
-  constructor(@Inject(DB_CLIENT) private readonly client: DbClient = prisma as DbClient) {}
+  constructor(
+    @Inject(DB_CLIENT) private readonly client: DbClient = prisma as DbClient,
+    // Optional so the service stays unit-testable with a bare fake client. The
+    // registry is a sibling provider, so importing SellerModule into a consumer
+    // does not create a cycle.
+    @Inject(MarketplaceRegistryService)
+    private readonly marketplaces?: MarketplaceRegistryService,
+  ) {}
 
   // ------------------------------------------------------------- products
 
@@ -708,14 +717,24 @@ export class SellerService {
 
   /** Seller overview for the Seller Control Center — honest about empties. */
   async overview() {
-    const [sellers, listings, inventory, orders, returns, settlements] = await Promise.all([
+    const [sellers, listings, inventory, orders, returns, settlements, marketplaces] = await Promise.all([
       this.client.sellerAccount.count(),
       this.client.sellerListing.count(),
       this.client.sellerInventory.count(),
       this.client.sellerOrder.count(),
       this.client.sellerReturn.count(),
       this.client.sellerSettlement.count(),
+      // The real connection states, not a hardcoded 0. A seller overview that
+      // claims "0 connected marketplaces" while credentials are present but
+      // unverified would be reporting a fact it never checked.
+      this.marketplaces
+        ? this.marketplaces.status()
+        : Promise.resolve([] as MarketplaceStatus[]),
     ]);
+
+    const connected = marketplaces.filter((m) => m.connected);
+    const configuredNotVerified = marketplaces.filter((m) => !m.connected);
+
     return {
       sellers,
       listings,
@@ -723,11 +742,18 @@ export class SellerService {
       orders,
       returns,
       settlements,
-      connectedMarketplaces: 0,
+      // Measured, not assumed: how many marketplace connections are VERIFIED.
+      connectedMarketplaces: connected.length,
+      configuredNotVerifiedMarketplaces: configuredNotVerified.length,
+      marketplaces,
       status:
         sellers === 0
           ? "Awaiting data — no seller account created yet"
-          : "Foundation active — no marketplace connected",
+          : connected.length === 0
+            ? configuredNotVerified.length > 0
+              ? "Credentials present but no marketplace connection has been verified"
+              : "Foundation active — no marketplace configured or connected"
+            : `${connected.length} marketplace connection(s) verified`,
     };
   }
 }

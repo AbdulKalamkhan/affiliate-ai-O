@@ -512,7 +512,38 @@ describe("SellerService", () => {
     const overview = await service.overview();
     expect(overview.sellers).toBe(1);
     expect(overview.connectedMarketplaces).toBe(0);
-    expect(overview.status).toContain("no marketplace connected");
+    // Nothing is configured, so the page must not imply a connection attempt.
+    expect(overview.status).toContain("no marketplace configured or connected");
+    expect(overview.configuredNotVerifiedMarketplaces).toBe(0);
+  });
+
+  it("counts verified connections from the registry instead of a hardcoded 0", async () => {
+    const registry = {
+      status: async () => [
+        { marketplace: "AMAZON", connected: true, state: "connected" },
+        { marketplace: "FLIPKART", connected: false, state: "configured_not_verified" },
+      ],
+    } as unknown as MarketplaceRegistryService;
+
+    const overview = await new SellerService(db.db, registry).overview();
+
+    expect(overview.connectedMarketplaces).toBe(1);
+    expect(overview.configuredNotVerifiedMarketplaces).toBe(1);
+    // Credentials present but unverified must not be described as connected.
+    expect(overview.status).toContain("1 marketplace connection(s) verified");
+  });
+
+  it("does not claim a connection when credentials exist but none is verified", async () => {
+    const registry = {
+      status: async () => [
+        { marketplace: "FLIPKART", connected: false, state: "configured_not_verified" },
+      ],
+    } as unknown as MarketplaceRegistryService;
+
+    const overview = await new SellerService(db.db, registry).overview();
+
+    expect(overview.connectedMarketplaces).toBe(0);
+    expect(overview.status).toContain("Credentials present but no marketplace connection");
   });
 });
 

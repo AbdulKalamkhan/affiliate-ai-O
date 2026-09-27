@@ -11,6 +11,7 @@ const NAV = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/command-center", label: "Command Center" },
   { href: "/campaigns", label: "Campaign Analytics" },
+  { href: "/seller", label: "Seller" },
 ];
 
 export default function RootLayout({
