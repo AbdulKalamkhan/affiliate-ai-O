@@ -110,6 +110,10 @@ const matches = (row: FakeRow, where?: Record<string, unknown>): boolean => {  i
  * numeric filters (`lte`, `lt`, `gte`, `gt`). Without this the fake silently
  * ignored `runAt: { lte: now }` and a claim-queue spec would pass for the wrong
  * reason.
+ *
+ * Every supplied comparator must hold (AND), matching Prisma. Returning on the
+ * FIRST one found would make a `{ gte, lt }` range silently ignore its upper
+ * bound, so an analytics window spec would pass while testing nothing.
  */
 const rowMatches = (row: FakeRow, key: string, value: unknown): boolean => {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -118,12 +122,21 @@ const rowMatches = (row: FakeRow, key: string, value: unknown): boolean => {
   }
   const actual = toTime(row[key]);
   const cmp = value as { lte?: unknown; lt?: unknown; gte?: unknown; gt?: unknown; not?: unknown };
-  if (cmp.not !== undefined) return row[key] !== cmp.not;
-  if (cmp.lte !== undefined) return actual <= toTime(cmp.lte);
-  if (cmp.lt !== undefined) return actual < toTime(cmp.lt);
-  if (cmp.gte !== undefined) return actual >= toTime(cmp.gte);
-  if (cmp.gt !== undefined) return actual > toTime(cmp.gt);
-  return row[key] === value;
+  if (cmp.not !== undefined && row[key] === cmp.not) return false;
+  if (cmp.lte !== undefined && !(actual <= toTime(cmp.lte))) return false;
+  if (cmp.lt !== undefined && !(actual < toTime(cmp.lt))) return false;
+  if (cmp.gte !== undefined && !(actual >= toTime(cmp.gte))) return false;
+  if (cmp.gt !== undefined && !(actual > toTime(cmp.gt))) return false;
+  if (
+    cmp.lte === undefined &&
+    cmp.lt === undefined &&
+    cmp.gte === undefined &&
+    cmp.gt === undefined &&
+    cmp.not === undefined
+  ) {
+    return row[key] === value;
+  }
+  return true;
 };
 
 const toTime = (value: unknown): number => {
@@ -293,6 +306,13 @@ export function makeFakeDb(): FakeDbResult {
       if (!("grantedAt" in row)) row.grantedAt = nextCreatedAt();
       if (!("updatedAt" in row)) row.updatedAt = nextCreatedAt();
       if (!("runAt" in row)) row.runAt = nextCreatedAt();
+      // Event tables carry `@default(now())` on their occurrence column. Without
+      // it a row created without an explicit timestamp would be left `undefined`,
+      // and every date-range filter would silently drop it — making a
+      // window-scoped analytics spec pass while measuring nothing.
+      if (!("occurredAt" in row)) row.occurredAt = nextCreatedAt();
+      if (!("recordedAt" in row)) row.recordedAt = nextCreatedAt();
+      if (!("orderedAt" in row)) row.orderedAt = nextCreatedAt();
       // Nullable columns must read back as `null` (what Prisma returns), not
       // `undefined` — a spec asserting `toBeNull()` is a real contract check.
       if (!("startedAt" in row)) row.startedAt = null;
@@ -343,11 +363,39 @@ export function makeFakeDb(): FakeDbResult {
     },
     count: async ({ where }: { where?: Record<string, unknown> } = {}): Promise<number> =>
       ensure(name).filter((r) => matches(r, where)).length,
+    groupBy: async ({
+      by,
+      where,
+      _count,
+    }: {
+      by: string[];
+      where?: Record<string, unknown>;
+      _count?: { _all?: boolean };
+    }): Promise<unknown[]> => {
+      const list = ensure(name).filter((r) => matches(r, where));
+      const groups = new Map<string, FakeRow[]>();
+      for (const row of list) {
+        const key = by.map((field) => String(row[field] ?? "")).join("\u0000");
+        groups.set(key, [...(groups.get(key) ?? []), row]);
+      }
+      return [...groups.entries()].map(([key, rows]) => {
+        const group: Record<string, unknown> = {};
+        by.forEach((field, i) => {
+          group[field] = key.split("\u0000")[i];
+        });
+        if (_count?._all) group._count = { _all: rows.length };
+        return group;
+      });
+    },
     aggregate: async ({ where, _sum }: AggregateOptions = {}): Promise<Record<string, unknown>> => {
       const list = ensure(name).filter((r) => matches(r, where));
-      const sums: Record<string, number> = {};
+      const sums: Record<string, number | null> = {};
       for (const field of Object.keys(_sum ?? {})) {
-        sums[field] = list.reduce((acc, r) => acc + toNumber(r[field]), 0);
+        // Real Prisma returns NULL for `SUM` over ZERO rows, not 0. Seeding the
+        // reduce at 0 made the fake invent a measurement of zero for an empty
+        // set, which is exactly the "UNKNOWN became 0" defect this codebase
+        // exists to prevent — and it hid it inside the test double.
+        sums[field] = list.length === 0 ? null : list.reduce((acc, r) => acc + toNumber(r[field]), 0);
       }
       return { _sum: sums };
     },

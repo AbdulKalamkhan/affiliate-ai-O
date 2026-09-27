@@ -370,3 +370,136 @@ clean; root build 3/3; Prisma schema valid. Live built-runtime probe:
 and `/campaign-analytics/overview` → `hasRevenueEvidence: false`. Rendered HTML
 on `/` and `/campaigns` shows `Revenue = Awaiting data`, `Profit = Awaiting
 data`, and a plain `Clicks = 0`.
+
+## SECURITY / MONEY-INTEGRITY BATCH — PUSHED 2026-09-27 (commit 8729613)
+
+Phase-0 audit findings closed in a single security pass.
+
+**Authenticated identity replaces request-body actors.** `RevenueController`
+(scaffold/list/reconcile/reject) and the seller money-write routes
+(`ingestOrder`, `recordReturn`, `recordSettlement`) previously read an `actor`
+string out of the request body, so any caller could write an audit trail
+attributing their action to someone else. The actor now comes from
+`CurrentPrincipal` only. Controller inline body types no longer accept `actor`,
+and `audit-identity.spec.ts` posts a spoofed `actor` and proves the stored
+audit row still records the authenticated principal.
+
+**Unresolved identity fails closed.** `CurrentPrincipal` returns the
+`UNRESOLVED_PRINCIPAL` sentinel for a non-owner principal instead of silently
+degrading to a shared or anonymous identity. An audit row can therefore never
+claim a more specific actor than the request actually proved.
+
+**Money inputs are validated at runtime.** Settlement totals, fees, refunds,
+net amount and profit state are checked for finite non-negative numbers before
+persistence; `recordReturn` validates its amount and order reference. A
+`NaN`/`Infinity`/negative value can no longer reach a money column.
+
+**Returns are atomic and idempotent.** `recordReturn` performs the
+read-check-write inside a transaction, so a concurrent double submission cannot
+create two returns, and it refuses a return for an unknown order rather than
+orphaning it. A repeated `externalId` returns the existing row instead of
+duplicating a money record.
+
+**Inventory evidence is explicit.** Inventory snapshot responses carry
+`evidenceState` (`known` / `unknown`), so an unmeasured stock level is no
+longer rendered as a measured zero.
+
+**Marketplace connectivity is honest.** `not_connected` (no usable transport)
+and `configured_not_verified` (credentials present, connection never proven)
+are distinct states, and sync failures return a non-2xx status mapped from the
+error code instead of a fabricated success payload. Credentials alone never
+imply a live connection.
+
+**Prisma CAS failure is handled.** `automation/cas.ts` now treats `P2025` as a
+lost compare-and-swap rather than a generic error, and `fake-db` raises the
+same no-match error real Prisma does. A mutation check (disabling the
+structural `P2025` handling) fails 3 tests, and a mutation check on the actor
+test fails it, so these guards are proven rather than asserted.
+
+**Verification:** 470/470 API tests (31 suites); api typecheck, lint and build
+clean; Prisma schema valid. Not yet deployed to production at the time of this
+entry.
+
+## UNIFIED ANALYTICS (P2) — IMPLEMENTED + TESTED 2026-09-27
+
+New `apps/api/src/analytics/` module. The previous analytics surface
+(`/campaign-analytics/overview`) computed correct per-campaign totals but had
+no time window, no evidence state per number, and no way for a caller to tell a
+measured zero from an absent measurement. This module makes that distinction
+the API contract.
+
+**Every number carries its own evidence.** Each metric is a `MetricValue`:
+`value` (nullable), `evidenceState` (`known` / `unknown` / `not_configured` /
+`not_connected` / `not_verified` / `not_available`), `provenance[]` (source
+table, filter, `sampleSize`) and a human `note`. A `null` value always means
+NO EVIDENCE and never zero. `GET /analytics/meta` publishes the contract so
+the UI never hardcodes a window or a state.
+
+**One window, echoed on every response.** `?window=today|7d|30d|90d|allTime|custom`
+plus `&from=&to=&timezone=` (IANA, default `Asia/Kolkata`). `today` is local
+midnight in the requested zone, not UTC midnight. Ranges are half-open
+`[from, to)`, so a record at exactly `to` belongs to the next window and
+adjacent windows can never double count. The resolved window is returned with
+every response, so a chart and its numbers cannot be computed over different
+periods. Unknown windows, unknown timezones and malformed custom ranges are
+rejected with 400 rather than silently defaulted.
+
+**Honest derived values.** A conversion rate is computed only when BOTH terms
+exist (clicks > 0 AND at least one reconciled event); with clicks but no
+reconciled event, or reconciled revenue but no clicks, it stays UNKNOWN rather
+than collapsing to 0. `sumKnown()` refuses to total a partial breakdown: one
+UNKNOWN component makes the whole total UNKNOWN.
+
+**Seller metrics separate recorded evidence from sync coverage.** A settlement
+recorded manually IS evidence and is reported as such. What is missing without
+a live transport is the continuous feed, so that is reported separately as
+`liveSync: not_connected` with a note that recorded figures may be incomplete.
+Blanketing every seller metric as `not_connected` would have discarded real
+recorded money; reporting a count as "synced" would overstate coverage.
+`orders` is counted from `seller_orders` and no longer derived from the
+settlement count. A settlement that leaves `fees`/`refunds`/`netAmount`
+unstated makes that total UNKNOWN ("the total would be a guess"), while a
+recorded `refunds: 0` remains a verified zero. COGS stays UNKNOWN because it
+is asserted by the caller, not derived from a live catalogue.
+
+**Campaign revenue is computed, not a placeholder.** It is the same reconciled
+total the overview reports, so the two views cannot disagree; per-campaign
+split lives in `/analytics/campaigns`. Impressions stay `not_available` — they
+require a social platform API that is not connected, and are never estimated.
+
+### Defects found and fixed while testing this module
+
+Writing the tests surfaced four real bugs, three of them in the test
+infrastructure that was hiding them:
+
+1. **`fake-db` returned `_sum: 0` for an empty set.** Real Prisma returns
+   `SUM(...) = NULL` over zero rows. The fake seeded its reduce at `0`, so it
+   invented a measurement of zero — the same "UNKNOWN became 0" defect this
+   codebase exists to prevent, hiding inside the double that was supposed to
+   catch it.
+2. **`fake-db` returned on the FIRST comparator it found.** A `{ gte, lt }`
+   range therefore silently ignored its upper bound. Any window spec would have
+   passed while testing nothing. Now every supplied comparator must hold.
+3. **`fake-db` did not apply `@default(now())` to event timestamps.** A row
+   created without an explicit `occurredAt` was left `undefined` and dropped by
+   every date filter, again letting a window-scoped spec pass while measuring
+   nothing.
+4. **Channel and campaign clicks ignored the window.** Both used the
+   all-time relation `_count`, so a "7d" heading would have displayed every
+   click ever recorded — breaking the one guarantee a chart owes the reader.
+   Both now use a real `groupBy` scoped to the window, with `where` omitted for
+   `allTime` (treating the missing range as "no clicks" would have reported a
+   false zero). A mutation check dropping that filter fails 2 tests.
+
+Also fixed: provenance `sampleSize` was hardcoded to `0` for revenue and
+commission (a provenance record that understates its own evidence), and the
+`reconciledEvents` aggregate OBJECT was used as a truthiness test for evidence,
+which made the "no reconciled evidence" branches dead code.
+
+**Verification:** 503/503 API tests (32 suites) and 7/7 web tests; typecheck
+4/4; lint clean; api+web builds clean; Prisma schema valid. Two mutation checks
+confirm the new guards bite: dropping the window filter fails 2 tests, and
+removing `MarketplaceRegistryService` from `SellerModule` exports fails the
+wiring test. Phase-00 remains BLOCKED on genuine Amazon evidence; Campaign #3
+untouched (1 campaign, 1 published asset, 4 clicks, 0 conversions, revenue and
+profit UNKNOWN / Awaiting data).

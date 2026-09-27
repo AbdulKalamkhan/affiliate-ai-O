@@ -17,6 +17,7 @@ import { SystemModule } from "./system/system.module";
 import { SellerModule } from "./seller/seller.module";
 import { AutomationModule } from "./automation/automation.module";
 import { AiModule } from "./ai/ai.module";
+import { AnalyticsModule } from "./analytics/analytics.module";
 import { ApiKeyGuard } from "./security/api-key.guard";
 import { RateLimitGuard } from "./security/rate-limit.guard";
 import { AllExceptionsFilter } from "./observability/http-exception.filter";
@@ -38,6 +39,7 @@ import { RequestLoggerInterceptor } from "./observability/request-logger.interce
     SellerModule,
     AutomationModule,
     AiModule,
+    AnalyticsModule,
   ],
   controllers: [HealthController],
   providers: [
