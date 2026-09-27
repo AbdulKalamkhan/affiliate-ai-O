@@ -229,3 +229,96 @@ reaching this API. Left unchanged pending Owner direction.
 the worker is not yet enabled in production. `marketplace.sync` remains
 `not_implemented`. Phase-00 remains BLOCKED on genuine Amazon conversion and
 commission evidence.
+
+---
+
+## AI_PROVIDER_BOUNDARY (P1) — IMPLEMENTED + TESTED 2026-09-27
+
+The provider-neutral AI boundary is implemented. This is the only place in the
+codebase permitted to contact a language model, and it is deliberately the whole
+change: the boundary, its honesty rules, and its refusal behaviour.
+
+**Rule 5 (AI cannot mutate business state) is enforced structurally, not by
+convention.** `AiService` writes exactly one table, `ai_invocations`. A completion
+can only become an effect by travelling through a typed tool, then a NestJS
+service, then authorization, then business logic. Covered by a test that invokes
+the boundary and asserts `revenueEvent`, `profitRecord`, `affiliateLink`,
+`contentAsset`, `sellerOrder`, `sellerSettlement` and `bossAction` are all still
+empty.
+
+**Honesty rules implemented:**
+1. No credential ⇒ `not_configured` ⇒ every call fails closed with
+   `NOT_CONFIGURED`. There is no fabricated completion and no silent fallback to a
+   stub. A provider whose credential exists is still only `configured`, never
+   `verified`.
+2. `verified` (and therefore `/ai/status.anyVerified`) comes from a SUCCESSFUL
+   REAL CALL recorded in the database. Configuration can never set it, and the
+   mock is hard-wired to never set it.
+3. Cost is `null` (UNKNOWN) unless an operator supplies a price via
+   `AI_MODEL_PRICES_JSON`. Vendor prices are configuration, not source: a price
+   baked into a file is a claim this system cannot keep true. Same for context
+   windows and output ceilings — all `null` until configured.
+4. Usage token counts come from the provider's own response, or are `null`. They
+   are never defaulted to `0`.
+5. No secret is ever returned, logged, audited or persisted; prompts and responses
+   are redacted before they are stored or forwarded.
+
+**Adapters shipped:** `openai_compatible` (hosted vendor) and `local`
+(self-hosted OpenAI-compatible server), registered under DIFFERENT names so a
+local server can never be reported as the hosted vendor. `mock` is an offline
+deterministic adapter, off unless `AI_ENABLE_MOCK_PROVIDER` is set. `anthropic`
+and `google` are declared provider names with NO adapter: naming one fails with
+`UNKNOWN_MODEL` rather than pretending. A local provider serves only the model
+ids the operator lists in `AI_LOCAL_MODELS` — no model id is invented.
+
+**Endpoint surface:** `GET /ai/status|providers|invocations|usage`,
+`POST /ai/invoke`. All authenticated by the global API-key guard. `/ai/invoke`
+returns ONLY a completion (`provider`, `model`, `content`, `finishReason`,
+`requestId`) — no usage or cost internals reach the client. It requires a
+non-viewer principal and autonomy >= 3, audited even when refused.
+
+**Migration:** `20260927092952_ai_provider_boundary` (adds `ai_invocations`;
+32 models). Applied to the configured development database; production is still
+on 11 migrations until this is deployed.
+
+**Verification (2026-09-27):** `460/460` tests in 30 suites, typecheck, lint,
+root build 3/3, `prisma validate`, `prisma migrate status` (12 migrations, up to
+date). Live probe of the BUILT `dist/main.js` against real PostgreSQL:
+`/ai/status` unauthenticated `401`; both shipped adapters reported
+`not_configured` with no credential; `/ai/invoke` refused with `403` at the
+default autonomy 2 and `503 NOT_CONFIGURED` at autonomy 3; unknown provider,
+missing model and empty messages each `400`; both the refused and the
+not-configured attempts were audited with actor and `verified=false`; a mock
+completion returned with `verified=false`; a prompt carrying an OpenAI-style key,
+a connection string, a bearer token and an `api_key=` assignment was stored with
+all four redacted and surrounding text intact; `/ai/usage` reported
+`promptTokens/completionTokens/totalTokens/costUsd` as `null` rather than `0`.
+
+**Bugs found and fixed during this work (all were real defects, not tests-only):**
+- `AiModule` provided `AiProviderRegistry` as a class and never called
+  `buildDefaultRegistry()`, so the RUNTIME registry was empty — calls failed for
+  the wrong reason ("nothing registered" instead of "no credential").
+- The local adapter was constructed with the hosted vendor's name, so it
+  overwrote it in the registry and reported itself as `openai_compatible`.
+- `AiService` threw Nest HTTP exceptions from the boundary instead of the typed
+  `AiError` the interface promises; the controller now maps `AiError` to HTTP.
+- `/ai/invoke` hardcoded autonomy 2 and offered no way to declare a level, so it
+  could only ever return `403`; it now accepts a validated `autonomyLevel`,
+  matching the existing `/boss/commands` convention.
+- Unknown provider names were silently dropped to `null` (a typo could quietly
+  become "use the default"); invalid input returned `200` with an error object.
+- `toInt(null)` returned `0` because `Number(null) === 0`, converting UNKNOWN
+  token counts into a confident `0` in `/ai/usage`.
+- The redactor's patterns had no capture group, so `String.replace` passed the
+  match OFFSET (and later the whole input string) into the callback, splicing
+  numbers and duplicated text into redacted output. Patterns now declare
+  explicitly which groups are context, split by before/after the credential. The
+  original assertions (`not.toContain` the secret, `toContain "[REDACTED]"`)
+  passed throughout this bug; the tests now assert exact output.
+
+**Honest gaps:** no real LLM credential is configured, so no provider has ever
+been verified and no real model output exists. `anthropic`/`google` have no
+adapter. There is no per-provider rate limiting or token budget, no streaming,
+no AI-generated typed tool yet (the Boss executor and tool registry exist and are
+policy-enforcing; wiring an LLM to them is the next step), and
+`boss-memory.service.ts` still honestly reports `llmProvider: "not_connected"`.

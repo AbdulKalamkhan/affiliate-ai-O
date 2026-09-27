@@ -60,6 +60,7 @@ const DELEGATE_NAMES = {
   publishApproval: 1,
   automationJob: 1,
   automationAttempt: 1,
+  aiInvocation: 1,
 } as const;
 
 /**
@@ -147,6 +148,8 @@ export function makeFakeDb(): FakeDbResult {
       maxAttempts: 3,
       replayCount: 0,
     },
+    // Mirrors the AI boundary schema: a missing price is NULL (UNKNOWN), never 0.
+    aiInvocation: { costState: "unknown_usage", verified: false },
   };
 
   const withDefaults = (name: string, data: Record<string, unknown>): Record<string, unknown> => ({
@@ -422,6 +425,7 @@ export function makeFakeDb(): FakeDbResult {
     publishApproval: delegate("publishApproval"),
     automationJob: delegate("automationJob"),
     automationAttempt: delegate("automationAttempt"),
+    aiInvocation: delegate("aiInvocation"),
     $transaction: async <T,>(fn: (tx: DbTransactionClient) => Promise<T>): Promise<T> => {
       const forced = failNextTransaction;
       failNextTransaction = null;

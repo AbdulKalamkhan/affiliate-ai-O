@@ -33,6 +33,7 @@ type DbModels = Pick<
   | "publishApproval"
   | "automationJob"
   | "automationAttempt"
+  | "aiInvocation"
 >;
 
 export type DbTransactionClient = DbModels;

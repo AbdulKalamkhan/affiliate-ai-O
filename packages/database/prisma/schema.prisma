@@ -611,3 +611,61 @@ model AutomationAttempt {
   @@index([jobId, attempt])
   @@map("automation_attempts")
 }
+
+// ---------------------------------------------------------------------------
+// AI provider boundary (P1)
+//
+// One row per AI call. Exists so AI spend and AI usage are AUDITABLE facts
+// rather than a guess, and so an AI system can never quietly start spending.
+//
+// PROVENANCE RULES encoded in the schema:
+//   - `costUsd` is NULLABLE. A call whose price is unknown stores NULL, which
+//     means UNKNOWN. It is never stored as 0, because "we don't know the price"
+//     and "this was free" are different facts.
+//   - `promptTokens` / `completionTokens` are NULLABLE for the same reason: a
+//     provider that does not report usage yields UNKNOWN, not 0.
+//   - `provider` and `model` are recorded verbatim so a later price change never
+//     rewrites history.
+//   - Prompts/responses are stored REDACTED. No provider secret is ever persisted.
+// ---------------------------------------------------------------------------
+
+model AiInvocation {
+  id            String   @id @default(cuid())
+  requestId     String?
+  provider      String
+  model         String
+  /// configured | not_configured | not_implemented | mock
+  providerStatus String
+  /// success | timeout | rate_limited | provider_error | invalid_response | not_configured | unauthorized
+  status        String
+  promptChars   Int?
+  responseChars Int?
+  promptTokens     Int?
+  completionTokens Int?
+  totalTokens      Int?
+  // USD. NULL means price unknown (UNKNOWN), never 0 for unknown.
+  costUsd      Decimal?      @db.Decimal(10, 6)
+  /// computed | unknown_price | unknown_usage
+  costState    String   @default("unknown_usage")
+  latencyMs    Int?
+  finishReason String?
+  /// Redacted copy of what was sent. Never contains a credential.
+  requestPreview  Json?
+  /// Redacted copy of what came back. Never contains a credential.
+  responsePreview Json?
+  /// Typed error code; the message is redacted too.
+  errorCode   String?
+  errorDetail String?
+  /// Authenticated principal that caused the call.
+  actor       String?
+  /// Autonomy level the call was made at. Recorded, never escalated here.
+  autonomyLevel Int?
+  /// Set only when a real provider call has actually succeeded.
+  verified    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([provider, createdAt])
+  @@index([status, createdAt])
+  @@index([model, createdAt])
+  @@map("ai_invocations")
+}
