@@ -322,3 +322,51 @@ adapter. There is no per-provider rate limiting or token budget, no streaming,
 no AI-generated typed tool yet (the Boss executor and tool registry exist and are
 policy-enforcing; wiring an LLM to them is the next step), and
 `boss-memory.service.ts` still honestly reports `llmProvider: "not_connected"`.
+
+## MONEY TRUTH — UNKNOWN IS NOT ZERO — FIXED 2026-09-27 (commit 97f0cf3)
+
+**What was actually wrong:** the live dashboard rendered `Revenue ₹0.00` and
+`Profit ₹0.00` for a business that had never recorded a single reconciled
+revenue event. This was not a display nit; it was the API asserting a
+measurement it did not have.
+
+**Root cause:** `dashboard.service.ts` coerced aggregate sums through a local
+`toNumber` helper whose first line was `if (value === null || value ===
+undefined) return 0`. Prisma returns `NULL` for `SUM` over zero rows *precisely
+to signal that no measurement exists* — SQL agrees. One helper was silently
+converting "we don't know" into "we measured zero", and the evidence-only design
+that everything else in the repo defends was being undercut at the one place
+the Owner actually looks.
+
+**Fix:**
+- `sumOrNull(sum, rowCount)`: money totals are `null` when there are zero
+  reconciled rows, and a real `0` when rows genuinely sum to zero. The two
+  cases are now distinguishable, which is the entire point.
+- `campaign-analytics`: added `hasRevenueEvidence` / `hasProfitEvidence` so a
+  consumer can tell a top-line 0 from no evidence. Per-campaign rows keep their
+  real `0`, because "this campaign recorded no revenue" is a true statement
+  about a campaign that exists — only the system-wide total lacks evidence.
+- Web: `UNKNOWN_LABEL` (`"Awaiting data"`), `moneyOrUnknown`, `countOrUnknown`
+  replace `?? 0`, so UNKNOWN can never render identically to a measured zero.
+  Also fixed `campaigns/page.tsx`, which declared `revenue: number` while
+  null-checking it — the guard was dead code that TypeScript happily accepted.
+
+**Deliberately unchanged:** `counts` (opportunities, links, assets, clicks,
+conversions, profitRecords). Those are `COUNT`s of rows we just queried, so `0`
+is a genuine measurement there. Blanket-nulling counts would have been the
+opposite error: replacing truth with vagueness.
+
+**A pre-existing test was encoding the bug.** `dashboard.service.spec.ts`
+asserted "reports zero counts and zero totals on an empty database" and
+expected `revenue === 0`. It passed, and it was wrong. A test that pins false
+behaviour is more dangerous than no test, because it actively resists the fix.
+Corrected to expect `null`, plus two new tests: a recorded zero must still
+report `0`, and a database with clicks but no reconciled revenue must report
+UNKNOWN money.
+
+**Verification:** 462/462 API tests (30 suites); api+web typecheck and lint
+clean; root build 3/3; Prisma schema valid. Live built-runtime probe:
+`/dashboard/overview` → `revenue: null, profit: null, clicks: 0, conversions: 0`
+and `/campaign-analytics/overview` → `hasRevenueEvidence: false`. Rendered HTML
+on `/` and `/campaigns` shows `Revenue = Awaiting data`, `Profit = Awaiting
+data`, and a plain `Clicks = 0`.
