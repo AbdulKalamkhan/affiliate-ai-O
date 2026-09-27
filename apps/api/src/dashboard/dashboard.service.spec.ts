@@ -19,9 +19,10 @@ const seedLink = async (
   });
 
 describe("DashboardService", () => {
-  it("reports zero counts and zero totals on an empty database", async () => {
+  it("reports real zero COUNTS but UNKNOWN money totals on an empty database", async () => {
     const { db } = makeFakeDb();
     const result = await makeService(db).overview();
+    // Counts are a measurement of rows we just counted, so 0 is a real zero.
     expect(result.counts).toEqual({
       opportunities: 0,
       affiliateLinks: 0,
@@ -31,13 +32,31 @@ describe("DashboardService", () => {
       conversions: 0,
       profitRecords: 0,
     });
-    expect(result.totals.revenue).toBe(0);
-    expect(result.totals.profit).toBe(0);
+    // Money is different: nothing has been reconciled, so the total is UNKNOWN.
+    // Rendering ₹0.00 here would claim the business earned exactly nothing,
+    // which is a measurement we do not have. This assertion previously encoded
+    // the bug by expecting 0.
+    expect(result.totals.revenue).toBeNull();
+    expect(result.totals.profit).toBeNull();
     expect(result.clicksByChannel).toEqual({});
     expect(result.recentLinks).toHaveLength(0);
     expect(result.recentAssets).toHaveLength(0);
     expect(result.recentRevenueEvents).toHaveLength(0);
     expect(new Date(result.at).toISOString()).toBe(result.at);
+  });
+
+  it("reports a genuine 0 money total when recorded rows really do sum to zero", async () => {
+    const { db } = makeFakeDb();
+    // A recorded, reconciled event of 0 IS a measurement, and must render as 0
+    // rather than being confused with "no data".
+    await db.revenueEvent.create({ data: { value: 0, status: "reconciled", provider: "amazon-associates" } });
+    await db.profitRecord.create({ data: { source: "test", grossAmount: 0, feeAmount: 0, costAmount: 0, netProfit: 0 } });
+
+    const result = await makeService(db).overview();
+    expect(result.counts.conversions).toBe(1);
+    expect(result.counts.profitRecords).toBe(1);
+    expect(result.totals.revenue).toBe(0);
+    expect(result.totals.profit).toBe(0);
   });
 
   it("counts records across all tracked entities", async () => {
@@ -67,6 +86,24 @@ describe("DashboardService", () => {
       conversions: 1,
       profitRecords: 1,
     });
+    expect(result.totals.revenue).toBe(100);
+    expect(result.totals.profit).toBe(40);
+    expect(result.clicksByChannel).toEqual({ PINTEREST: 2 });
+  });
+
+  it("keeps money totals UNKNOWN when there are clicks but no reconciled revenue", async () => {
+    const { db } = makeFakeDb();
+    const link = await seedLink(db);
+    await db.affiliateLinkClick.create({ data: { linkId: link.id } });
+    await db.affiliateLinkClick.create({ data: { linkId: link.id } });
+
+    const result = await makeService(db).overview();
+    expect(result.counts.clicks).toBe(2);
+    expect(result.counts.conversions).toBe(0);
+    // Clicks exist, but we have NO reconciled revenue/profit evidence: the
+    // totals must remain UNKNOWN (null) rather than coerced to a false 0.
+    expect(result.totals.revenue).toBeNull();
+    expect(result.totals.profit).toBeNull();
   });
 
   it("aggregates clicks by channel using the embedded _count", async () => {

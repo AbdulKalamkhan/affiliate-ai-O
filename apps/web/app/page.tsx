@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { conversionRate as conversionRateOf, formatInrCompact } from "./_ui/format";
+import { conversionRate as conversionRateOf, countOrUnknown, moneyOrUnknown } from "./_ui/format";
 import { Card, EmptyState, InfoBanner, Kpi, SectionHeading, StatusPill, UnavailableBanner, type Tone } from "./_ui/ui";
 
 export const metadata: Metadata = {
@@ -126,12 +126,12 @@ export default async function HomePage() {
 
       {live ? (
         <div className="kpi-grid">
-          <Kpi label="Clicks" value={clicks} hint="recorded real traffic" />
-          <Kpi label="Conversions" value={conversions} hint="verified (reconciled) events" />
-          <Kpi label="Revenue" value={formatInrCompact(rev)} tone={rev != null && rev > 0 ? "green" : "amber"} hint="reconciled evidence only" />
-          <Kpi label="Profit" value={formatInrCompact(profit)} tone={profit != null && profit > 0 ? "green" : "amber"} hint="gross − fee − cost" />
+          <Kpi label="Clicks" value={countOrUnknown(clicks)} hint="recorded real traffic" />
+          <Kpi label="Conversions" value={countOrUnknown(conversions)} hint="verified (reconciled) events" />
+          <Kpi label="Revenue" value={moneyOrUnknown(rev)} tone={rev != null && rev > 0 ? "green" : "amber"} hint={rev != null ? "reconciled evidence only" : "no reconciled revenue evidence yet"} />
+          <Kpi label="Profit" value={moneyOrUnknown(profit)} tone={profit != null && profit > 0 ? "green" : "amber"} hint={profit != null ? "gross − fee − cost" : "profit cannot be computed until revenue is reconciled"} />
           <Kpi label="Conversion rate" value={conversionRate != null ? `${conversionRate.toFixed(1)}%` : "Awaiting data"} hint={clicks != null && clicks > 0 ? `${clicks} clicks tracked` : "no clicks yet"} />
-          <Kpi label="Published pins" value={overview?.counts.publishedAssets ?? 0} hint="content assets live" />
+          <Kpi label="Published pins" value={countOrUnknown(overview?.counts.publishedAssets)} hint="content assets live" />
         </div>
       ) : (
         <EmptyState

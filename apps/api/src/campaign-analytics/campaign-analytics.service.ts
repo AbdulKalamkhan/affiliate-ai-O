@@ -121,6 +121,13 @@ export class CampaignAnalyticsService {
         }),
         { clicks: 0, conversions: 0, revenue: 0, profit: 0 },
       ),
+      // Per-campaign rows keep a real 0 — "this campaign recorded no revenue" is
+      // a true statement about a campaign that exists. The top-line total is
+      // different: with zero reconciled revenue events in the whole system there
+      // is no measurement at all, and reporting ₹0 would claim the business
+      // earned exactly nothing.
+      hasRevenueEvidence: events.length > 0,
+      hasProfitEvidence: profits.length > 0,
     };
   }
 }

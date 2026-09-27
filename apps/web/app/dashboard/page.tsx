@@ -10,7 +10,7 @@ import {
   UnavailableBanner,
   ValueTag,
 } from "../_ui/ui";
-import { conversionRate, formatInr } from "../_ui/format";
+import { conversionRate, countOrUnknown, formatInr, moneyOrUnknown } from "../_ui/format";
 
 export const metadata: Metadata = {
   title: "Dashboard — AI_OS",
@@ -199,10 +199,10 @@ export default async function DashboardPage() {
 
       {live ? (
         <div className="kpi-grid">
-          <Kpi label="Revenue" value={formatInr(revenue ?? 0)} tone={revenue != null && revenue > 0 ? "green" : "amber"} hint="reconciled evidence only" />
-          <Kpi label="Profit" value={formatInr(profit ?? 0)} tone={profit != null && profit > 0 ? "green" : "amber"} hint="gross − fee − cost" />
-          <Kpi label="Clicks" value={clicks} hint="recorded real traffic" />
-          <Kpi label="Conversions" value={conversions} hint="verified (reconciled) events" />
+          <Kpi label="Revenue" value={moneyOrUnknown(revenue)} tone={revenue != null && revenue > 0 ? "green" : "amber"} hint={revenue != null ? "reconciled evidence only" : "no reconciled revenue evidence yet"} />
+          <Kpi label="Profit" value={moneyOrUnknown(profit)} tone={profit != null && profit > 0 ? "green" : "amber"} hint={profit != null ? "gross − fee − cost" : "profit cannot be computed until revenue is reconciled"} />
+          <Kpi label="Clicks" value={countOrUnknown(clicks)} hint="recorded real traffic" />
+          <Kpi label="Conversions" value={countOrUnknown(conversions)} hint="verified (reconciled) events" />
           <Kpi label="Conversion rate" value={rate != null ? `${rate.toFixed(2)}%` : "Awaiting data"} hint={clicks != null && clicks > 0 ? `${clicks} clicks tracked` : "no clicks yet"} />
           <Kpi label="Active campaigns" value={activeCampaigns ?? "Awaiting data"} hint={campaigns ? "from campaign analytics" : "campaign data unavailable"} />
           <Kpi label="Published assets" value={data?.counts.publishedAssets ?? 0} hint={data ? `of ${data.counts.contentAssets} assets` : undefined} />

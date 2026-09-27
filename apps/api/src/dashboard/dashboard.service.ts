@@ -6,11 +6,29 @@ import { DB_CLIENT } from "../db/tokens";
 import { RevenueService } from "../revenue/revenue.service";
 
 function toNumber(value: unknown): number {
-  if (value === null || value === undefined) return 0;
-  if (typeof value === "object" && "toNumber" in (value as { toNumber?: unknown })) {
+  if (typeof value === "object" && value !== null && "toNumber" in (value as { toNumber?: unknown })) {
     return (value as { toNumber: () => number }).toNumber();
   }
   return Number(value);
+}
+
+/**
+ * A money total is only a number when there is money to total.
+ *
+ * `SUM` over zero rows is NULL, not 0 — and Prisma reports that faithfully. The
+ * old `toNumber` collapsed NULL to `0`, which rendered a dashboard reading
+ * "revenue ₹0.00" for a business that has never recorded a reconciled event.
+ * That is the most expensive kind of wrong in a money system: a real zero is a
+ * decision, an invented one is a fiction, and the two are indistinguishable once
+ * rendered.
+ *
+ * So: no rows => `null` (UNKNOWN, render "Awaiting data"). Rows that genuinely
+ * sum to zero => `0`.
+ */
+function sumOrNull(sum: unknown, rowCount: number): number | null {
+  if (rowCount === 0) return null;
+  if (sum === null || sum === undefined) return null;
+  return toNumber(sum);
 }
 
 const LINKS_META = {
@@ -103,8 +121,10 @@ export class DashboardService {
         profitRecords,
       },
       totals: {
-        revenue: toNumber(revenueAgg._sum.value),
-        profit: toNumber(profitAgg._sum.netProfit),
+        // `null` = no reconciled evidence yet, which the UI must show as
+        // "Awaiting data" — never as ₹0.00.
+        revenue: sumOrNull(revenueAgg._sum.value, conversions),
+        profit: sumOrNull(profitAgg._sum.netProfit, profitRecords),
       },
       clicksByChannel,
       concentration,

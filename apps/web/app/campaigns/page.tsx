@@ -27,6 +27,13 @@ interface CampaignOverview {
   at: string;
   campaigns: CampaignRow[];
   totals: { clicks: number; conversions: number; revenue: number; profit: number };
+  /**
+   * False when the system holds no reconciled revenue/profit record at all. The
+   * `totals` above are then structurally 0 (a sum over zero rows) rather than a
+   * measurement, and must be rendered as "Awaiting data", not ₹0.00.
+   */
+  hasRevenueEvidence: boolean;
+  hasProfitEvidence: boolean;
 }
 
 async function getJson<T>(path: string): Promise<T | null> {
@@ -49,7 +56,13 @@ export default async function CampaignsPage() {
 
   const apiOk = Boolean(health && health.status === "ok");
   const t = overview
-    ? { clicks: overview.totals.clicks, conversions: overview.totals.conversions, revenue: overview.totals.revenue, profit: overview.totals.profit }
+    ? {
+        clicks: overview.totals.clicks,
+        conversions: overview.totals.conversions,
+        // No reconciled evidence => UNKNOWN, not a confident 0.
+        revenue: overview.hasRevenueEvidence ? overview.totals.revenue : null,
+        profit: overview.hasProfitEvidence ? overview.totals.profit : null,
+      }
     : { clicks: null, conversions: null, revenue: null, profit: null };
 
   return (
