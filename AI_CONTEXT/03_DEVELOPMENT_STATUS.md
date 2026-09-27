@@ -503,3 +503,25 @@ removing `MarketplaceRegistryService` from `SellerModule` exports fails the
 wiring test. Phase-00 remains BLOCKED on genuine Amazon evidence; Campaign #3
 untouched (1 campaign, 1 published asset, 4 clicks, 0 conversions, revenue and
 profit UNKNOWN / Awaiting data).
+
+### Production verification 2026-09-27 (commits 8729613 + f71cfcd both live)
+
+Render auto-deploy confirmed on `ai-os-api-1eck`:
+
+- `/health` 200, `database: ok`.
+- All four new analytics routes are MOUNTED and fail closed: `/analytics/overview`,
+  `/analytics/channels`, `/analytics/campaigns`, `/analytics/meta` all 401 with no
+  key and 401 with a wrong key (they returned 404 before the new build, so the
+  401 confirms the new module is live and the guard is holding).
+- Pre-existing routes unchanged: `/dashboard/overview`,
+  `/campaign-analytics/overview`, `/system/providers` all still 401.
+- Web `/`, `/dashboard`, `/campaigns`, `/command-center` all 200.
+- Rendered dashboard still shows the truthful values: `Clicks 4`,
+  revenue/profit `Awaiting data`, no `NaN`, no `[object Object]`, and no API-key
+  leak. The 27 `undefined` strings in the HTML are all inside the Next.js
+  flight payload (serialized optional fields), not visible text.
+
+Authenticated production probes of the analytics payloads remain BLOCKED: the
+production `API_KEY` is not available locally, so the response BODIES were
+verified in tests and by route/guard status only, never against live data.
+No business data was written or changed.
