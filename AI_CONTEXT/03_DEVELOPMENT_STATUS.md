@@ -210,6 +210,21 @@ returned `201` with `replayCount=1` and a distinct key; replaying a non-dead-let
 returned `400`; a 2030-scheduled job stayed `queued` at `attemptCount=0`. Money tables
 and `publishApprovals=1` were unchanged by the probe.
 
+**Production verification (2026-09-27, after push `81adce6`):** the API is live at
+`https://ai-os-api-1eck.onrender.com` (the host in `render.yaml` `API_BASE_URL`).
+`GET /health` = 200 `{"status":"ok","service":"@ai-os/api","database":"ok"}`, and the
+new `GET /automation/status` and `GET /automation/handlers` both return
+`401 Invalid or missing API key` — the routes exist in the deployed build and fail
+closed, which is the intended security boundary. The automation worker is NOT enabled
+in production (`AUTOMATION_WORKER_ENABLED` unset), so no job is being processed there.
+`AUTOMATION_AUTONOMY_LEVEL` is unset in production, so the queue ceiling is the
+fail-closed default `0`.
+
+**INFRA_NOTE:** the shorter hostname `https://ai-os-api.onrender.com` is a DIFFERENT
+Render service — it answers with `x-render-origin-server: uvicorn` and returns 404
+for every Nest route including `/health`. Anything pointed at that hostname is not
+reaching this API. Left unchanged pending Owner direction.
+
 **Honest gaps:** no Redis/BullMQ/n8n, no external marketplace call, no live LLM, and
 the worker is not yet enabled in production. `marketplace.sync` remains
 `not_implemented`. Phase-00 remains BLOCKED on genuine Amazon conversion and
