@@ -181,7 +181,7 @@ export class SellerController {
       sellerId: string;
       platform: "AMAZON_SELLER" | "FLIPKART_SELLER" | "MEESHO_SUPPLIER";
       totalAmount: number;
-      externalId?: string;
+      externalId: string;
       fees?: number;
       refunds?: number;
       cogs?: number;
@@ -192,6 +192,12 @@ export class SellerController {
     @CurrentPrincipal() principal: Principal,
   ) {
     return this.service.recordSettlement({ ...body, actor: principal.id });
+  }
+
+  /** Durable per-component cost breakdown, so net profit can be re-derived. */
+  @Get("settlements/:id/lines")
+  settlementLines(@Param("id") id: string) {
+    return this.service.settlementLines(id);
   }
 
   // -------------------------------------------------------------- sellers

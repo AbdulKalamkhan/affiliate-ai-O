@@ -282,6 +282,82 @@ describe("AnalyticsService evidence discipline", () => {
     expect(result.campaign.published.evidenceState).toBe("known");
   });
 
+  it("computes COGS from the durable cost lines", async () => {
+    const { db } = makeFakeDb();
+    const seller = await db.sellerAccount.create({
+      data: { platform: "AMAZON_SELLER", displayName: "Zora Jewellery" },
+    });
+    const settlement = await db.sellerSettlement.create({
+      data: {
+        sellerId: seller.id,
+        platform: "AMAZON_SELLER",
+        externalId: "STL-COGS-1",
+        totalAmount: 1000,
+        fees: 100,
+        refunds: 0,
+        netAmount: 500,
+        profitState: "complete",
+      },
+    });
+    // The cost lines live on the CHILD table and are filtered through the
+    // parent settlement, so this proves the relation filter really resolves.
+    await db.sellerSettlementLine.create({
+      data: { settlementId: settlement.id, kind: "cogs", amount: 400, source: "asserted_by_operator" },
+    });
+    const result = await new AnalyticsService(db).overview({ window: "allTime" }, NOW);
+    expect(result.seller.cogs.value).toBe(400);
+    expect(result.seller.cogs.evidenceState).toBe("known");
+    expect(result.seller.cogs.provenance[0].source).toBe("seller_settlement_lines");
+  });
+
+  it("keeps COGS UNKNOWN when only some settlements stated a cost", async () => {
+    const { db } = makeFakeDb();
+    const seller = await db.sellerAccount.create({
+      data: { platform: "AMAZON_SELLER", displayName: "Zora Jewellery" },
+    });
+    const withCost = await db.sellerSettlement.create({
+      data: { sellerId: seller.id, platform: "AMAZON_SELLER", externalId: "STL-COGS-2A", totalAmount: 1000 },
+    });
+    await db.sellerSettlementLine.create({
+      data: { settlementId: withCost.id, kind: "cogs", amount: 400 },
+    });
+    // A second settlement in the same window stated no COGS at all. Summing the
+    // one known figure would understate cost and overstate profit.
+    await db.sellerSettlement.create({
+      data: { sellerId: seller.id, platform: "AMAZON_SELLER", externalId: "STL-COGS-2B", totalAmount: 2000 },
+    });
+    const result = await new AnalyticsService(db).overview({ window: "allTime" }, NOW);
+    expect(result.seller.cogs.value).toBeNull();
+    expect(result.seller.cogs.evidenceState).toBe("unknown");
+    expect(result.seller.cogs.note).toMatch(/overstate profit/);
+  });
+
+  it("restricts COGS to the window via the settlement's own createdAt", async () => {
+    const { db } = makeFakeDb();
+    const seller = await db.sellerAccount.create({
+      data: { platform: "AMAZON_SELLER", displayName: "Zora Jewellery" },
+    });
+    const inside = await db.sellerSettlement.create({
+      data: { sellerId: seller.id, platform: "AMAZON_SELLER", externalId: "STL-COGS-3A", totalAmount: 1000 },
+    });
+    const outside = await db.sellerSettlement.create({
+      data: {
+        sellerId: seller.id,
+        platform: "AMAZON_SELLER",
+        externalId: "STL-COGS-3B",
+        totalAmount: 2000,
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      },
+    });
+    await db.sellerSettlementLine.create({ data: { settlementId: inside.id, kind: "cogs", amount: 400 } });
+    await db.sellerSettlementLine.create({ data: { settlementId: outside.id, kind: "cogs", amount: 900 } });
+    const service = new AnalyticsService(db);
+    const week = await service.overview({ window: "7d" }, NOW);
+    const all = await service.overview({ window: "allTime" }, NOW);
+    expect(week.seller.cogs.value).toBe(400);
+    expect(all.seller.cogs.value).toBe(1300);
+  });
+
   it("computes a real conversion rate when both terms are measured", async () => {
     const { db } = makeFakeDb();
     const link = await seedLink(db);

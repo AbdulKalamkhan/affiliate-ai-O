@@ -95,6 +95,7 @@ describe("money-write audit identity", () => {
       {
         sellerId: seller.id,
         platform: "AMAZON_SELLER",
+        externalId: "STL-FORGED-ACTOR-1",
         totalAmount: 5000,
         fees: 500,
         refunds: 0,

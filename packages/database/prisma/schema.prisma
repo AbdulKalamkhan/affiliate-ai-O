@@ -503,9 +503,15 @@ model SellerReturn {
 }
 
 model SellerSettlement {
-  id           String        @id @default(cuid())
+  id           String   @id @default(cuid())
   sellerId     String
   seller       SellerAccount @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  /// The platform's own settlement identifier. REQUIRED by the API (a
+  /// settlement without one cannot be deduplicated on retry), but left NULLABLE
+  /// in the schema because historical rows may predate that rule. A unique
+  /// index on (platform, externalId) is deliberately NOT added yet: existing
+  /// duplicates cannot be ruled out without inspecting production, and a failing
+  /// index build would block deploys.
   externalId   String?
   platform     SellerPlatform
   status       String        @default("pending")
@@ -523,8 +529,35 @@ model SellerSettlement {
   periodEnd    DateTime?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
+  lines        SellerSettlementLine[]
   @@index([sellerId, status])
   @@map("seller_settlements")
+}
+
+/// One cost/revenue component of a settlement, stored as its own durable row.
+///
+/// This exists because the components that decide net profit (cogs, shipping,
+/// other costs) had nowhere to live except an audit-log JSON blob. That made
+/// net profit unre-derivable from the settlement itself and meant COGS could
+/// never be reported at all. Each line also records WHERE its amount came
+/// from, so a cost asserted by a human is never presented as a platform fact.
+model SellerSettlementLine {
+  id           String           @id @default(cuid())
+  settlementId String
+  settlement   SellerSettlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+  /// cogs | shipping | fees | refunds | other | revenue
+  kind         String
+  /// NULL means UNKNOWN: the platform did not state this component. It is
+  /// never 0, and net profit stays NULL while any component is unknown.
+  amount       Decimal?         @db.Decimal(12, 2)
+  currency     String           @default("INR")
+  /// asserted_by_operator | platform_reported | measured
+  source       String           @default("asserted_by_operator")
+  note         String?
+  createdAt    DateTime         @default(now())
+  @@index([settlementId, kind])
+  @@index([kind, createdAt])
+  @@map("seller_settlement_lines")
 }
 
 // --- Phase-04 QA-01 publish approvals (replaces the hardcoded bypass) ---

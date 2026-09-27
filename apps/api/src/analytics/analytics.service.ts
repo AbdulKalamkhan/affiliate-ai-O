@@ -216,7 +216,7 @@ export class AnalyticsService {
 
   private async sellerMetrics(window: TimeWindow): Promise<Record<string, MetricValue>> {
     const range = dateRange(window, "createdAt");
-    const [settlements, orders, live] = await Promise.all([
+    const [settlements, orders, live, cogsAgg, cogsCount] = await Promise.all([
       this.client.sellerSettlement.findMany({
         where: { ...range },
         select: {
@@ -231,6 +231,13 @@ export class AnalyticsService {
       }),
       this.client.sellerOrder.count({ where: { ...range } }),
       this.marketplaces ? this.marketplaces.status() : Promise.resolve([]),
+      // COGS now lives in durable per-settlement cost lines, so it is a real
+      // measurement rather than a permanent UNKNOWN.
+      this.client.sellerSettlementLine.aggregate({
+        _sum: { amount: true },
+        where: { kind: "cogs", settlement: { ...range } },
+      }),
+      this.client.sellerSettlementLine.count({ where: { kind: "cogs", settlement: { ...range } } }),
     ]);
 
     // A recorded settlement IS evidence. What is missing without a live
@@ -319,10 +326,27 @@ export class AnalyticsService {
               ? "counted rows: a live transport recorded no settlement in this window"
               : "no settlement recorded, and no live transport is verified to prove that is the true state",
           },
-      cogs: unknown(
-        "cost of goods sold is asserted per settlement by the caller; it is not derived from a live catalogue",
-        prov("seller_settlements", { ...(range ?? {}) }, settlements.length),
-      ),
+      // COGS is summed from the durable cost lines. A total is only real when
+      // EVERY settlement in the window stated a cogs line; a settlement that
+      // omitted it leaves the total UNKNOWN rather than quietly understating
+      // the cost (and therefore overstating profit).
+      cogs:
+        cogsAgg._sum.amount === null
+          ? unknown(
+              "no settlement in this window stated a cost-of-goods figure",
+              prov("seller_settlement_lines", { kind: "cogs" }, 0),
+            )
+          : cogsCount < settlements.length
+            ? unknown(
+                `only ${cogsCount} of ${settlements.length} settlement(s) in this window stated COGS; summing them would understate cost and overstate profit`,
+                prov("seller_settlement_lines", { kind: "cogs" }, cogsCount),
+              )
+            : {
+                value: Math.round(toNum(cogsAgg._sum.amount) * 100) / 100,
+                evidenceState: "known",
+                provenance: prov("seller_settlement_lines", { kind: "cogs" }, cogsCount),
+                note: "sum of asserted per-settlement cost lines",
+              },
       profit: money(profit, "seller_settlements", "netAmount"),
       // The honest availability signal, kept apart from the recorded figures.
       liveSync: sync,

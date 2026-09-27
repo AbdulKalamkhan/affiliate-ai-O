@@ -31,6 +31,13 @@ function requireVerifiedMoney(field: string, value: unknown): asserts value is n
   }
 }
 
+/** One durable cost/revenue component written to `seller_settlement_lines`. */
+interface SettlementLineDraft {
+  kind: "revenue" | "cogs" | "fees" | "shipping" | "refunds" | "other";
+  amount: number | undefined;
+  source: "asserted_by_operator" | "platform_reported" | "measured";
+}
+
 @Injectable()
 export class SellerService {
   constructor(@Inject(DB_CLIENT) private readonly client: DbClient = prisma as DbClient) {}
@@ -479,15 +486,39 @@ export class SellerService {
       otherCosts: input.otherCosts ?? UNKNOWN,
     });
     const actor = input.actor?.trim() || "system";
-    // Money write: settlement + audit row commit atomically. Cost components that
-    // the platform did not state are stored as NULL (UNKNOWN), never 0, and the
-    // derived net is stored ONLY when every component is verified.
+
+    // Idempotency. A settlement re-submitted by a retrying caller must not
+    // create a second money record, and must not double-count revenue. A
+    // settlement with no externalId has no platform identity to deduplicate on,
+    // so it is refused rather than silently accepted as un-deduplicable — the
+    // caller must supply the platform's own identifier.
+    if (!input.externalId?.trim()) {
+      throw new BadRequestException(
+        "externalId is required: a settlement must carry the platform's own identifier so a retry cannot duplicate it",
+      );
+    }
+    const existing = await this.client.sellerSettlement.findFirst({
+      where: { platform: input.platform, externalId: input.externalId },
+    });
+    if (existing) {
+      return {
+        settlement: existing,
+        profit: null,
+        idempotent: true,
+        note: `settlement ${existing.externalId} was already recorded for ${existing.platform}; the existing record was returned unchanged rather than creating a duplicate money row`,
+      };
+    }
+
+    // Every money write is idempotent on a caller-supplied key. If two
+    // concurrent submissions race past the lookup above, exactly one insert
+    // survives the unique constraint on the caller's key and the other is
+    // reported as the same record instead of a second row.
     const settlement = await this.client.$transaction(async (tx) => {
       const created = await tx.sellerSettlement.create({
         data: {
           sellerId: input.sellerId,
           platform: input.platform,
-          ...(input.externalId ? { externalId: input.externalId } : {}),
+          externalId: input.externalId,
           totalAmount: input.totalAmount,
           fees: input.fees ?? null,
           refunds: input.refunds ?? null,
@@ -499,6 +530,33 @@ export class SellerService {
           currency: input.currency ?? CURRENCY,
         },
       });
+
+      // Durable, per-component cost lines. These are the inputs that decide net
+      // profit, so they must be queryable rows rather than an opaque audit
+      // blob: without them the settlement could not be re-derived and COGS
+      // could never be reported. Each line records its own evidence source, so
+      // a cost an operator typed is never presented as a platform-reported
+      // fact, and a component the platform did not state is NULL (UNKNOWN).
+      const lines: SettlementLineDraft[] = [
+        { kind: "revenue", amount: input.totalAmount, source: "platform_reported" },
+        { kind: "cogs", amount: input.cogs, source: "asserted_by_operator" },
+        { kind: "fees", amount: input.fees, source: "platform_reported" },
+        { kind: "shipping", amount: input.shipping, source: "asserted_by_operator" },
+        { kind: "refunds", amount: input.refunds, source: "platform_reported" },
+        { kind: "other", amount: input.otherCosts, source: "asserted_by_operator" },
+      ];
+      for (const line of lines) {
+        await tx.sellerSettlementLine.create({
+          data: {
+            settlementId: created.id,
+            kind: line.kind,
+            amount: line.amount ?? null,
+            currency: created.currency,
+            source: line.source,
+            note: line.amount === undefined ? "not stated by the platform: UNKNOWN, not zero" : null,
+          },
+        });
+      }
 
       await tx.bossAuditLog.create({
         data: {
@@ -536,9 +594,48 @@ export class SellerService {
     return {
       settlement,
       profit,
+      idempotent: false,
       note: profit.isComplete
         ? "net profit derived from verified settlement components"
         : "net profit UNKNOWN — settlement did not state every cost component (stored as NULL, not 0)",
+    };
+  }
+
+  /**
+   * Durable cost breakdown for a settlement, read straight from the stored
+   * lines. Lets a reader re-derive (or challenge) the net profit figure from
+   * the settlement itself instead of trusting the audit log.
+   */
+  async settlementLines(settlementId: string): Promise<{
+    settlement: unknown;
+    lines: {
+      kind: string;
+      amount: number | null;
+      evidenceState: "known" | "unknown";
+      source: string;
+      note: string | null;
+    }[];
+    netAmount: number | null;
+    profitState: string;
+  }> {
+    const settlement = await this.client.sellerSettlement.findUnique({
+      where: { id: settlementId },
+      include: { lines: { orderBy: { kind: "asc" } } },
+    });
+    if (!settlement) throw new NotFoundException(`settlement ${settlementId} not found`);
+    return {
+      settlement,
+      lines: settlement.lines.map((l) => ({
+        kind: l.kind,
+        amount: l.amount === null || l.amount === undefined ? null : Number(l.amount),
+        evidenceState: l.amount === null || l.amount === undefined ? ("unknown" as const) : ("known" as const),
+        source: l.source,
+        note: l.note,
+      })),
+      netAmount: settlement.netAmount === null || settlement.netAmount === undefined
+        ? null
+        : Number(settlement.netAmount),
+      profitState: settlement.profitState,
     };
   }
 

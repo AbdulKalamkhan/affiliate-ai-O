@@ -525,3 +525,66 @@ Authenticated production probes of the analytics payloads remain BLOCKED: the
 production `API_KEY` is not available locally, so the response BODIES were
 verified in tests and by route/guard status only, never against live data.
 No business data was written or changed.
+
+## DURABLE SELLER COST LINES (P3) — IMPLEMENTED + TESTED 2026-09-27
+
+The Phase-0 seller audit found that the components which decide net profit
+(cogs, shipping, other costs) existed only inside a `boss_audit_log` JSON blob.
+Three consequences: net profit could not be re-derived from the settlement
+itself, COGS could never be reported at all, and a cost an operator typed was
+indistinguishable from a figure the platform actually reported.
+
+**New model `SellerSettlementLine`** (additive migration
+`20260927125000_add_seller_settlement_lines`, new table only — no existing
+table altered, so it cannot lose data). One row per settlement component:
+
+- `kind` — `revenue` | `cogs` | `fees` | `shipping` | `refunds` | `other`
+- `amount` — NULLABLE. NULL means the platform did not state it (UNKNOWN); it is
+  never 0, and net profit stays NULL while any component is unknown.
+- `source` — `platform_reported` | `asserted_by_operator` | `measured`. A cost
+  an operator typed is never presented as a platform fact.
+- `note` — why a component is UNKNOWN, stored with the value.
+
+`recordSettlement` now writes all six lines inside the same transaction as the
+settlement and the audit row, so a settlement can never exist without its cost
+breakdown. `GET /seller/settlements/:id/lines` returns the stored lines with a
+per-line `evidenceState`, so net profit can be independently re-derived or
+challenged instead of taken on trust.
+
+**Settlements are now idempotent.** `externalId` is REQUIRED (was optional): a
+settlement with no platform identifier cannot be deduplicated, so a retrying
+caller would silently double-count revenue. It is refused instead. A repeated
+`(platform, externalId)` returns the original record with `idempotent: true` and
+writes no second money row or second set of cost lines.
+
+A unique index on `(platform, externalId)` is deliberately NOT in this
+migration. Existing production duplicates cannot be ruled out without querying
+the production database, and a failing index build would block deploys. The
+column stays nullable in the schema because historical rows predate the
+requirement. The unique index is the correct end state and should be added once
+production duplicates have been checked.
+
+**COGS is now a real metric.** `/analytics/overview` sums `kind = "cogs"` lines
+filtered through the parent settlement's own `createdAt`, so it is
+window-scoped. It is reported UNKNOWN — not a partial sum — unless EVERY
+settlement in the window stated a COGS line, because summing a subset would
+understate cost and overstate profit.
+
+### Test-infrastructure gaps closed
+
+- `fake-db` had no `findFirst`. It now returns the first row AFTER applying
+  `orderBy`, matching Prisma: the first matching row is the first SORTED row,
+  not merely the first inserted. Getting that backwards would have made the
+  idempotency lookup return the wrong settlement.
+- `fake-db` had no relation filtering, so a `where: { settlement: { createdAt:
+  {...} } }` filter matched NOTHING. A spec asserting "COGS is a real
+  measurement" would have passed while the query silently returned nothing.
+  Added a child->parent relation map and threaded the row resolver through all
+  eight filter call sites.
+- `sellerSettlement.lines` include now honours the nested `orderBy`, so a spec
+  asserting line order is not passing without the fake sorting anything.
+
+**Verification:** 512/512 API tests (32 suites), 7/7 web, typecheck 4/4, lint
+clean, api+web builds clean, Prisma schema valid. Mutation check: removing the
+settlement relation mapping fails exactly the 3 COGS specs, confirming they are
+not passing for free.

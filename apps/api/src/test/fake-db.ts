@@ -6,7 +6,7 @@ import type { DbClient, DbTransactionClient } from "../db/db-client";
  * Real Prisma 6 THROWS P2025 when an `update`/`delete` filter matches no row. The
  * fake previously returned `null` instead, which made every compare-and-swap
  * guard in the automation queue look exercised while being unreachable in
- * production — a lost CAS race aborted the whole claim batch instead of skipping
+ * production ? a lost CAS race aborted the whole claim batch instead of skipping
  * one job. Production and test now fail the same way.
  */
 class FakeRecordNotFoundError extends Error {
@@ -48,7 +48,7 @@ interface AggregateOptions {
   _sum?: Record<string, unknown>;
 }
 
-/** Every table the fake Prisma client exposes — used to pre-create buckets. */
+/** Every table the fake Prisma client exposes ? used to pre-create buckets. */
 const DELEGATE_NAMES = {
   opportunity: 1,
   opportunityEvidence: 1,
@@ -78,6 +78,7 @@ const DELEGATE_NAMES = {
   sellerOrderItem: 1,
   sellerReturn: 1,
   sellerSettlement: 1,
+  sellerSettlementLine: 1,
   publishApproval: 1,
   automationJob: 1,
   automationAttempt: 1,
@@ -88,7 +89,7 @@ const DELEGATE_NAMES = {
  * Composite unique constraints the fake enforces. Without these the fake
  * silently accepted duplicate `(handler, idempotencyKey)` rows that real
  * Postgres rejects with P2002, so a replay-key collision only surfaced in a live
- * database — exactly the class of bug the unit suite must catch.
+ * database ? exactly the class of bug the unit suite must catch.
  */
 const UNIQUE_CONSTRAINTS: Record<string, string[][]> = {
   automationJob: [["handler", "idempotencyKey"]],
@@ -101,8 +102,38 @@ class FakeUniqueConstraintError extends Error {
   }
 }
 
-const matches = (row: FakeRow, where?: Record<string, unknown>): boolean => {  if (!where) return true;
-  return Object.entries(where).every(([key, value]) => rowMatches(row, key, value));
+/**
+ * Child table -> [relation name, parent table, foreign key].
+ *
+ * Needed because a Prisma filter may traverse a relation, e.g.
+ * `sellerSettlementLine.findMany({ where: { settlement: { createdAt: {...} } } })`.
+ * Without this the fake would compare a plain object against a non-existent
+ * column, match NOTHING, and a spec asserting "COGS is a real measurement"
+ * would pass while the query was silently returning nothing.
+ */
+const RELATIONS: Record<string, { field: string; parent: string; fk: string }> = {
+  sellerSettlementLine: { field: "settlement", parent: "sellerSettlement", fk: "settlementId" },
+};
+
+const matches = (
+  row: FakeRow,
+  where: Record<string, unknown> | undefined,
+  table: string | undefined,
+  get: (name: string) => FakeRow[],
+): boolean => {
+  if (!where) return true;
+  return Object.entries(where).every(([key, value]) => {
+    // A relation filter resolves the parent row and applies the filter to it.
+    const relation = table ? RELATIONS[table] : undefined;
+    if (relation && key === relation.field) {
+      if (value === null) return row[relation.fk] === null;
+      if (typeof value !== "object" || Array.isArray(value)) return false;
+      const parentRow = get(relation.parent).find((p) => p.id === row[relation.fk]);
+      if (!parentRow) return false;
+      return matches(parentRow, value as Record<string, unknown>, relation.parent, get);
+    }
+    return rowMatches(row, key, value);
+  });
 };
 
 /**
@@ -162,7 +193,7 @@ const toNumber = (value: unknown): number => {
 export function makeFakeDb(): FakeDbResult {
   const rows: Record<string, FakeRow[]> = {};
   const ensure = (name: string): FakeRow[] => (rows[name] ??= []);
-  // Monotonic clock so back-to-back creates get strictly increasing createdAt —
+  // Monotonic clock so back-to-back creates get strictly increasing createdAt ?
   // mirrors real Prisma inserts hitting separate transactions (at least 1ms apart)
   // and keeps orderBy createdAt assertions deterministic instead of same-ms flaky.
   let clock = 0;
@@ -228,6 +259,25 @@ export function makeFakeDb(): FakeDbResult {
       return rowsList.map((row) => {
         const profit = ensure("profitRecord").find((p) => p.revenueEventId === row.id);
         return { ...row, profitRecord: profit ?? null };
+      });
+    }
+    if (name === "sellerSettlement" && include.lines) {
+      const spec = (include.lines ?? {}) as { orderBy?: Record<string, "asc" | "desc"> };
+      const orderBy = spec.orderBy;
+      return rowsList.map((row) => {
+        const lines = ensure("sellerSettlementLine").filter((l) => l.settlementId === row.id);
+        // Honour the nested orderBy, or a spec asserting the line order would
+        // pass without the fake having sorted anything.
+        const [field, dir] = Object.entries(orderBy ?? {})[0] ?? [];
+        if (field) {
+          lines.sort((a, b) => {
+            const av = String(a[field] ?? "");
+            const bv = String(b[field] ?? "");
+            const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+            return dir === "desc" ? -cmp : cmp;
+          });
+        }
+        return { ...row, lines };
       });
     }
     if (name === "bossPlan") {
@@ -308,13 +358,13 @@ export function makeFakeDb(): FakeDbResult {
       if (!("runAt" in row)) row.runAt = nextCreatedAt();
       // Event tables carry `@default(now())` on their occurrence column. Without
       // it a row created without an explicit timestamp would be left `undefined`,
-      // and every date-range filter would silently drop it — making a
+      // and every date-range filter would silently drop it ? making a
       // window-scoped analytics spec pass while measuring nothing.
       if (!("occurredAt" in row)) row.occurredAt = nextCreatedAt();
       if (!("recordedAt" in row)) row.recordedAt = nextCreatedAt();
       if (!("orderedAt" in row)) row.orderedAt = nextCreatedAt();
       // Nullable columns must read back as `null` (what Prisma returns), not
-      // `undefined` — a spec asserting `toBeNull()` is a real contract check.
+      // `undefined` ? a spec asserting `toBeNull()` is a real contract check.
       if (!("startedAt" in row)) row.startedAt = null;
       if (!("finishedAt" in row)) row.finishedAt = null;
       if (!("lockedAt" in row)) row.lockedAt = null;
@@ -333,12 +383,12 @@ export function makeFakeDb(): FakeDbResult {
       where: Record<string, unknown>;
       include?: Record<string, unknown>;
     }): Promise<FakeRow | null> => {
-      const row = ensure(name).find((r) => matches(r, where)) ?? null;
+      const row = ensure(name).find((r) => matches(r, where, name, ensure)) ?? null;
       if (!row) return null;
       return (applyIncludes(name, [row], include) as FakeRow[])[0] ?? row;
     },
     findMany: async (options: FindOptions = {}): Promise<FakeRow[]> => {
-      let result = ensure(name).filter((r) => matches(r, options.where));
+      let result = ensure(name).filter((r) => matches(r, options.where, name, ensure));
       if (options.orderBy) {
         const [field, dir] = Object.entries(options.orderBy)[0];
         result = [...result].sort((a, b) => {
@@ -361,8 +411,15 @@ export function makeFakeDb(): FakeDbResult {
       }
       return result;
     },
+    findFirst: async (options: FindOptions = {}): Promise<FakeRow | null> => {
+      // Real Prisma applies `orderBy` BEFORE `take`; the first matching row is
+      // therefore the first SORTED row, not merely the first inserted. Getting
+      // this backwards would make an idempotency lookup return the wrong record.
+      const found = await delegate(name).findMany({ ...options, take: 1 });
+      return found[0] ?? null;
+    },
     count: async ({ where }: { where?: Record<string, unknown> } = {}): Promise<number> =>
-      ensure(name).filter((r) => matches(r, where)).length,
+      ensure(name).filter((r) => matches(r, where, name, ensure)).length,
     groupBy: async ({
       by,
       where,
@@ -372,7 +429,7 @@ export function makeFakeDb(): FakeDbResult {
       where?: Record<string, unknown>;
       _count?: { _all?: boolean };
     }): Promise<unknown[]> => {
-      const list = ensure(name).filter((r) => matches(r, where));
+      const list = ensure(name).filter((r) => matches(r, where, name, ensure));
       const groups = new Map<string, FakeRow[]>();
       for (const row of list) {
         const key = by.map((field) => String(row[field] ?? "")).join("\u0000");
@@ -388,13 +445,13 @@ export function makeFakeDb(): FakeDbResult {
       });
     },
     aggregate: async ({ where, _sum }: AggregateOptions = {}): Promise<Record<string, unknown>> => {
-      const list = ensure(name).filter((r) => matches(r, where));
+      const list = ensure(name).filter((r) => matches(r, where, name, ensure));
       const sums: Record<string, number | null> = {};
       for (const field of Object.keys(_sum ?? {})) {
         // Real Prisma returns NULL for `SUM` over ZERO rows, not 0. Seeding the
         // reduce at 0 made the fake invent a measurement of zero for an empty
         // set, which is exactly the "UNKNOWN became 0" defect this codebase
-        // exists to prevent — and it hid it inside the test double.
+        // exists to prevent ? and it hid it inside the test double.
         sums[field] = list.length === 0 ? null : list.reduce((acc, r) => acc + toNumber(r[field]), 0);
       }
       return { _sum: sums };
@@ -409,7 +466,7 @@ export function makeFakeDb(): FakeDbResult {
       const list = ensure(name);
       // Matches real Prisma: `where` may address any unique field (id, key, ...),
       // and a filter that matches NO row raises P2025 rather than returning null.
-      const index = list.findIndex((r) => matches(r, where));
+      const index = list.findIndex((r) => matches(r, where, name, ensure));
       if (index === -1) throw new FakeRecordNotFoundError(name);
       // Validate BEFORE writing, and roll back on violation, so a failed update
       // never leaves a half-applied row behind (real Prisma rejects the whole
@@ -427,7 +484,7 @@ export function makeFakeDb(): FakeDbResult {
     },
     delete: async ({ where }: { where: Record<string, unknown> }): Promise<FakeRow | null> => {
       const list = ensure(name);
-      const index = list.findIndex((r) => matches(r, where));
+      const index = list.findIndex((r) => matches(r, where, name, ensure));
       if (index === -1) return null;
       const [removed] = list.splice(index, 1);
       return removed;
@@ -442,7 +499,7 @@ export function makeFakeDb(): FakeDbResult {
       update: Record<string, unknown>;
     }): Promise<FakeRow> => {
       const list = ensure(name);
-      const index = list.findIndex((r) => matches(r, where));
+      const index = list.findIndex((r) => matches(r, where, name, ensure));
       if (index === -1) {
         const row: FakeRow = {
           id: `${name}_${list.length + 1}`,
@@ -492,6 +549,7 @@ export function makeFakeDb(): FakeDbResult {
     sellerOrderItem: delegate("sellerOrderItem"),
     sellerReturn: delegate("sellerReturn"),
     sellerSettlement: delegate("sellerSettlement"),
+    sellerSettlementLine: delegate("sellerSettlementLine"),
     publishApproval: delegate("publishApproval"),
     automationJob: delegate("automationJob"),
     automationAttempt: delegate("automationAttempt"),

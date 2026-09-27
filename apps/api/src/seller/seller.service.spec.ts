@@ -259,6 +259,7 @@ describe("SellerService", () => {
     const complete = await service.recordSettlement({
       sellerId,
       platform: "AMAZON_SELLER",
+      externalId: "STL-COMPLETE-1",
       totalAmount: 1000,
       fees: 150,
       refunds: 0,
@@ -266,15 +267,17 @@ describe("SellerService", () => {
       shipping: 50,
       otherCosts: 0,
     });
-    expect(complete.profit.netProfit).toBe(400);
+    // `profit` is null only on the idempotent path, where no new derivation ran.
+    expect(complete.profit?.netProfit).toBe(400);
 
     const partial = await service.recordSettlement({
       sellerId,
       platform: "AMAZON_SELLER",
+      externalId: "STL-PARTIAL-1",
       totalAmount: 800,
       fees: 100,
     });
-    expect(partial.profit.netProfit).toBeNull();
+    expect(partial.profit?.netProfit).toBeNull();
     expect(partial.note).toContain("UNKNOWN");
   });
 
@@ -282,10 +285,11 @@ describe("SellerService", () => {
     const { settlement, profit } = await service.recordSettlement({
       sellerId,
       platform: "AMAZON_SELLER",
+      externalId: "STL-UNKNOWN-1",
       totalAmount: 800,
       fees: 100,
     });
-    expect(profit.netProfit).toBeNull();
+    expect(profit?.netProfit).toBeNull();
     // A missing platform cost is UNKNOWN, so it must never be persisted as 0.
     expect(settlement.netAmount ?? null).toBeNull();
     expect(settlement.refunds ?? null).toBeNull();
@@ -294,6 +298,7 @@ describe("SellerService", () => {
     const complete = await service.recordSettlement({
       sellerId,
       platform: "AMAZON_SELLER",
+      externalId: "STL-ZERO-REFUND-1",
       totalAmount: 1000,
       fees: 150,
       refunds: 0,
@@ -305,6 +310,143 @@ describe("SellerService", () => {
     expect(complete.settlement.profitState).toBe("complete");
     // A verified zero stays a real zero, it is not confused with UNKNOWN.
     expect(complete.settlement.refunds).toBe(0);
+  });
+
+  it("requires externalId, because a settlement without one cannot be deduplicated", async () => {
+    await expect(
+      service.recordSettlement({ sellerId, platform: "AMAZON_SELLER", totalAmount: 500, fees: 10 }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.recordSettlement({
+        sellerId,
+        platform: "AMAZON_SELLER",
+        externalId: "   ",
+        totalAmount: 500,
+        fees: 10,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("is idempotent: a retried settlement returns the original, not a second money row", async () => {
+    const first = await service.recordSettlement({
+      sellerId,
+      platform: "AMAZON_SELLER",
+      externalId: "STL-RETRY-1",
+      totalAmount: 1000,
+      fees: 150,
+      refunds: 0,
+      cogs: 400,
+      shipping: 50,
+      otherCosts: 0,
+    });
+    const retry = await service.recordSettlement({
+      sellerId,
+      platform: "AMAZON_SELLER",
+      externalId: "STL-RETRY-1",
+      totalAmount: 1000,
+      fees: 150,
+      refunds: 0,
+      cogs: 400,
+      shipping: 50,
+      otherCosts: 0,
+    });
+    expect(retry.idempotent).toBe(true);
+    expect(retry.settlement.id).toBe(first.settlement.id);
+    // The decisive assertion: exactly ONE settlement and ONE set of lines.
+    expect(db.rows.sellerSettlement).toHaveLength(1);
+    expect(db.rows.sellerSettlementLine).toHaveLength(6);
+  });
+
+  it("scopes idempotency per platform so two marketplaces may share an id", async () => {
+    await service.recordSettlement({
+      sellerId,
+      platform: "AMAZON_SELLER",
+      externalId: "SHARED-1",
+      totalAmount: 100,
+      fees: 1,
+      refunds: 0,
+      cogs: 1,
+      shipping: 1,
+      otherCosts: 0,
+    });
+    const other = await service.recordSettlement({
+      sellerId,
+      platform: "MEESHO_SUPPLIER",
+      externalId: "SHARED-1",
+      totalAmount: 200,
+      fees: 2,
+      refunds: 0,
+      cogs: 2,
+      shipping: 2,
+      otherCosts: 0,
+    });
+    expect(other.idempotent).toBe(false);
+    expect(db.rows.sellerSettlement).toHaveLength(2);
+  });
+
+  it("writes a durable cost line per component, tagged with its evidence source", async () => {
+    const { settlement } = await service.recordSettlement({
+      sellerId,
+      platform: "AMAZON_SELLER",
+      externalId: "STL-LINES-1",
+      totalAmount: 1000,
+      fees: 150,
+      cogs: 400,
+    });
+    const view = await service.settlementLines(settlement.id as string);
+    const byKind = Object.fromEntries(view.lines.map((l) => [l.kind, l]));
+    // The inputs that decide net profit must be queryable rows, not an audit blob.
+    expect(Object.keys(byKind).sort()).toEqual(["cogs", "fees", "other", "refunds", "revenue", "shipping"]);
+    expect(byKind.revenue.amount).toBe(1000);
+    expect(byKind.cogs.amount).toBe(400);
+    // Stated by the platform vs typed by a human must never look alike.
+    expect(byKind.fees.source).toBe("platform_reported");
+    expect(byKind.cogs.source).toBe("asserted_by_operator");
+    // Unstated components are UNKNOWN with a reason, not a silent zero.
+    expect(byKind.shipping.amount).toBeNull();
+    expect(byKind.shipping.evidenceState).toBe("unknown");
+    expect(byKind.shipping.note).toMatch(/UNKNOWN, not zero/);
+    expect(view.netAmount).toBeNull();
+    expect(view.profitState).toBe("unknown");
+  });
+
+  it("keeps a verified zero cost as a known zero on the line", async () => {
+    const { settlement } = await service.recordSettlement({
+      sellerId,
+      platform: "AMAZON_SELLER",
+      externalId: "STL-LINES-ZERO-1",
+      totalAmount: 1000,
+      fees: 150,
+      refunds: 0,
+      cogs: 400,
+      shipping: 50,
+      otherCosts: 0,
+    });
+    const view = await service.settlementLines(settlement.id as string);
+    const zero = view.lines.find((l) => l.kind === "other");
+    expect(zero?.amount).toBe(0);
+    expect(zero?.evidenceState).toBe("known");
+    expect(view.netAmount).toBe(400);
+  });
+
+  it("rolls back the settlement when a cost line cannot be written", async () => {
+    const before = db.rows.sellerSettlement.length;
+    db.failNextTransaction(new Error("cost line write failed"));
+    await expect(
+      service.recordSettlement({
+        sellerId,
+        platform: "AMAZON_SELLER",
+        externalId: "STL-ROLLBACK-1",
+        totalAmount: 1000,
+        fees: 150,
+        cogs: 400,
+        shipping: 50,
+        otherCosts: 0,
+      }),
+    ).rejects.toThrow();
+    // Neither the settlement nor a partial set of cost lines may survive.
+    expect(db.rows.sellerSettlement).toHaveLength(before);
+    expect(db.rows.sellerSettlementLine).toHaveLength(0);
   });
 
   it("audits every settlement and order money write", async () => {
@@ -319,6 +461,7 @@ describe("SellerService", () => {
     const settlement = await service.recordSettlement({
       sellerId,
       platform: "AMAZON_SELLER",
+      externalId: "STL-AUDIT-1",
       totalAmount: 500,
       fees: 50,
       refunds: 0,

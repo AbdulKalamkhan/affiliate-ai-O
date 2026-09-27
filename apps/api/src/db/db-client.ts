@@ -30,6 +30,7 @@ type DbModels = Pick<
   | "sellerOrderItem"
   | "sellerReturn"
   | "sellerSettlement"
+  | "sellerSettlementLine"
   | "publishApproval"
   | "automationJob"
   | "automationAttempt"
