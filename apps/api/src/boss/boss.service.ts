@@ -4,11 +4,18 @@ import type { Prisma } from "@ai-os/database";
 import { prisma } from "@ai-os/database";
 import type { DbClient } from "../db/db-client";
 import { DB_CLIENT } from "../db/tokens";
+import {
+  AUTONOMY_LEVELS,
+  DEFAULT_AUTONOMY_LEVEL,
+  resolveEffectiveAutonomy,
+  type AutonomyLevel,
+  type AutonomyResolution,
+} from "../security/autonomy";
+import { UNRESOLVED_PRINCIPAL, type Principal } from "../security/principal";
 import { generatePlan, evaluatePermission } from "./boss-plan-generator";
 
-export const AUTONOMY_LEVELS = [0, 1, 2, 3, 4, 5] as const;
-export type AutonomyLevel = (typeof AUTONOMY_LEVELS)[number];
-export const DEFAULT_AUTONOMY_LEVEL: AutonomyLevel = 2;
+export { AUTONOMY_LEVELS, DEFAULT_AUTONOMY_LEVEL };
+export type { AutonomyLevel };
 
 export const BOSS_COMMAND_STATUSES = ["received", "planned", "archived"] as const;
 export type BossCommandStatus = (typeof BOSS_COMMAND_STATUSES)[number];
@@ -24,12 +31,17 @@ export interface CreateBossCommandInput {
 export class BossService {
   constructor(@Inject(DB_CLIENT) private readonly client: DbClient = prisma as DbClient) {}
 
-  private assertAutonomy(autonomyLevel: number | undefined): AutonomyLevel {
-    if (autonomyLevel === undefined || autonomyLevel === null) return DEFAULT_AUTONOMY_LEVEL;
-    if (!Number.isInteger(autonomyLevel) || !(AUTONOMY_LEVELS as readonly number[]).includes(autonomyLevel)) {
-      throw new BadRequestException(`autonomyLevel must be an integer in ${AUTONOMY_LEVELS.join("..")}`);
-    }
-    return autonomyLevel as AutonomyLevel;
+  /**
+   * A level in the request body is a REQUEST, not an authority. The persisted
+   * level is the server's: capped by OPERATOR_AUTONOMY_CEILING, with level 5
+   * reserved for an owner principal plus an explicit opt-in. Default principal
+   * fails CLOSED, so a direct call with no principal can never reach level 5.
+   */
+  private assertAutonomy(
+    autonomyLevel: number | undefined,
+    principal: Principal = UNRESOLVED_PRINCIPAL,
+  ): AutonomyResolution {
+    return resolveEffectiveAutonomy({ requested: autonomyLevel, principal });
   }
 
   private assertStatus(status?: string | null): void {
@@ -57,7 +69,7 @@ export class BossService {
   }
 
   /** Owner command intake → structured, auditable plan. Never executes tools in Phase-01. */
-  async create(input: CreateBossCommandInput) {
+  async create(input: CreateBossCommandInput, principal: Principal = UNRESOLVED_PRINCIPAL) {
     if (typeof input.text !== "string" || !input.text.trim()) {
       throw new BadRequestException("text is required");
     }
@@ -65,12 +77,24 @@ export class BossService {
     if (text.length > BOSS_COMMAND_TEXT_MAX_LENGTH) {
       throw new BadRequestException(`text must be at most ${BOSS_COMMAND_TEXT_MAX_LENGTH} characters`);
     }
-    const autonomyLevel = this.assertAutonomy(input.autonomyLevel);
+    const authority = this.assertAutonomy(input.autonomyLevel, principal);
+    const autonomyLevel = authority.effective;
 
     const command = await this.client.bossCommand.create({
       data: { text, autonomyLevel, status: "received" as BossCommandStatus },
     });
     await this.audit(command.id, "command", command.id, "created", { autonomyLevel });
+    // A reduction is never silent: the clamp itself is part of the audit trail.
+    if (authority.clamped) {
+      await this.audit(command.id, "command", command.id, "autonomy_clamped", {
+        requested: authority.requested,
+        effective: authority.effective,
+        ceiling: authority.ceiling,
+        ceilingSource: authority.ceilingSource,
+        ownerLevelRefused: authority.ownerLevelRefused,
+        principalRole: principal.role,
+      });
+    }
 
     const planModel = generatePlan(text);
     const plan = await this.client.bossPlan.create({
@@ -150,9 +174,17 @@ export class BossService {
     return row;
   }
 
-  async update(id: string, input: Partial<Pick<CreateBossCommandInput, "autonomyLevel"> & { status?: string | null }>) {
+  async update(
+    id: string,
+    input: Partial<Pick<CreateBossCommandInput, "autonomyLevel"> & { status?: string | null }>,
+    principal: Principal = UNRESOLVED_PRINCIPAL,
+  ) {
     const existing = await this.get(id);
-    const autonomyLevel = input.autonomyLevel !== undefined ? this.assertAutonomy(input.autonomyLevel) : undefined;
+    // Raising a stored command's autonomy goes through the same server-side
+    // ceiling as creating one, otherwise PATCH would be an escalation route.
+    const authority =
+      input.autonomyLevel !== undefined ? this.assertAutonomy(input.autonomyLevel, principal) : undefined;
+    const autonomyLevel = authority?.effective;
     this.assertStatus(input.status);
     const data: Record<string, unknown> = {
       ...(autonomyLevel !== undefined ? { autonomyLevel } : {}),
@@ -165,6 +197,16 @@ export class BossService {
       ...(autonomyLevel !== undefined ? { autonomyLevel } : {}),
       ...(input.status !== undefined && input.status !== null ? { status: input.status } : {}),
     });
+    if (authority?.clamped) {
+      await this.audit(existing.id, "command", existing.id, "autonomy_clamped", {
+        requested: authority.requested,
+        effective: authority.effective,
+        ceiling: authority.ceiling,
+        ceilingSource: authority.ceilingSource,
+        ownerLevelRefused: authority.ownerLevelRefused,
+        principalRole: principal.role,
+      });
+    }
     return this.client.bossCommand.update({ where: { id }, data });
   }
 

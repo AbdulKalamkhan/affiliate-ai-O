@@ -190,15 +190,27 @@ const toNumber = (value: unknown): number => {
   return Number(value);
 };
 
-export function makeFakeDb(): FakeDbResult {
+export interface FakeDbOptions {
+  /**
+   * Pin the wall clock. By default rows are stamped with the real clock, which
+   * is right for ordering assertions but makes any test that compares a row
+   * against a FIXED time window a time bomb: it passed on the day it was
+   * written and started failing the next day. Pass the same instant the window
+   * maths is pinned to and the comparison becomes deterministic forever.
+   */
+  now?: Date | number | string;
+}
+
+export function makeFakeDb(options: FakeDbOptions = {}): FakeDbResult {
   const rows: Record<string, FakeRow[]> = {};
   const ensure = (name: string): FakeRow[] => (rows[name] ??= []);
   // Monotonic clock so back-to-back creates get strictly increasing createdAt ?
   // mirrors real Prisma inserts hitting separate transactions (at least 1ms apart)
   // and keeps orderBy createdAt assertions deterministic instead of same-ms flaky.
-  let clock = 0;
+  const pinned = options.now === undefined ? null : new Date(options.now).getTime();
+  let clock = pinned ?? 0;
   const nextCreatedAt = (): Date => {
-    clock = Math.max(clock + 1, Date.now());
+    clock = pinned === null ? Math.max(clock + 1, Date.now()) : clock + 1;
     return new Date(clock);
   };
 

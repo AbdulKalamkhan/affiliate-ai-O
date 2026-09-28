@@ -1,4 +1,4 @@
-# 03_DEVELOPMENT_STATUS.md
+﻿# 03_DEVELOPMENT_STATUS.md
 
 **This is the most important file to keep current. Update it after every session.**
 
@@ -649,4 +649,65 @@ verified connection.
 **Not verified:** the page's rendering against live production data still
 requires the server-side `API_KEY` on the web service. Its behaviour is proven
 by typecheck, build and the API contract, not by a live screenshot.
+## AUTONOMY CEILING ESCALATION FIX — IMPLEMENTED + TESTED 2026-09-28
 
+Audit finding (AI CEO / Boss / governance): **the server-side autonomy ceiling
+existed only for the automation queue.** `POST /boss/commands` and
+`POST /ai/invoke` took `autonomyLevel` from the request body and persisted it
+verbatim. `BossService.assertAutonomy` only range-checked the integer, and
+`AiController` only range-checked it before the service's level-3 floor. Because
+the single API key maps to `role: "owner"`, **any authenticated caller could
+declare `autonomyLevel: 5` and unlock every tool** without the server's
+configured ceiling being raised. This is a direct violation of RULE 10 ("never
+allow an action to bypass its required autonomy level") and of "level 5 is
+owner-only".
+
+**New single authority `apps/api/src/security/autonomy.ts`.**
+`resolveEffectiveAutonomy()` is now the only function that may produce a level:
+
+- `effective = min(declared, OPERATOR_AUTONOMY_CEILING)` — the server can only
+  ever **lower** autonomy, never raise it.
+- An absent or unparseable ceiling **fails closed to 2** (observe / recommend /
+  prepare), matching the documented default.
+- **Level 5 is owner-only and cannot be self-declared**: it requires BOTH an
+  authenticated owner principal AND `AUTONOMY_ALLOW_OWNER_LEVEL=true`, so
+  neither the API key nor a request body is sufficient on its own.
+- A declared 0 is preserved; the resolver never overrides a *lower* request.
+- Resolution is pure and env-injectable, so it is deterministic in tests.
+
+Wired into `BossService.create` / `.update` (the authenticated principal now
+flows from the controller) and `AiController.invoke`. `PATCH /boss/commands/:id`
+is no longer an escalation route around the ceiling.
+
+**A reduction is never silent.** When the effective level is lower than the
+declared one, an `autonomy_clamped` audit row records the requested level, the
+effective level, the ceiling, its source, whether the owner level was refused,
+and the principal's role.
+
+**Discoverability.** `GET /ai/status` now returns an `autonomy` block with the
+ceiling, its source, the level invoke requires, and `invokePermitted`, so a
+refused invoke is diagnosable instead of looking like a credential problem.
+
+**Honest consequence, not hidden:** `/ai/invoke` requires level 3, so at the
+default ceiling of 2 the route is refused. This costs no production capability
+(no AI provider credential is configured, so it could never run anyway) and it is
+now reported explicitly. Enabling it is a deliberate Owner action:
+`OPERATOR_AUTONOMY_CEILING=3`.
+
+**Two bugs found by the new tests while writing them** (both fixed):
+1. The refused-level-5 path originally clamped to level 4 *ignoring* the
+   ceiling, so a ceiling of 2 would have yielded 4 — worse than no ceiling.
+2. The validation message joined the level set with the same `..` separator used
+   to render the range, producing `0..1..2..3..4..5`. Now `0..5`.
+
+**Latent time-bomb test found by the same run.** The analytics spec
+"restricts COGS to the window via the settlement's own createdAt" pinned its
+window to `2026-09-27T10:30Z` but let the fake DB stamp rows with the real
+clock, so it began failing on 2026-09-28 — a green suite that would have rotted
+overnight. `makeFakeDb({ now })` can now pin the clock; the test does so. Any
+other test comparing a row against a fixed window needs the same treatment.
+
+**Verification:** 538/538 API tests (33 suites, up from 514/32), 7/7 web,
+typecheck clean (4/4), lint clean (3/3), api+web builds clean. New
+`security/autonomy.spec.ts` (14 specs) is the regression guard for the escalation
+path, plus 4 new Boss specs and 4 new AI status/autonomy specs.

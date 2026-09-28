@@ -66,9 +66,20 @@ describe("AiController", () => {
 
   beforeEach(() => {
     process.env = { ...savedEnv };
-    for (const key of ["AI_DEFAULT_PROVIDER", "AI_ENABLE_MOCK_PROVIDER", "OPENAI_API_KEY", "API_KEY"]) {
+    for (const key of [
+      "AI_DEFAULT_PROVIDER",
+      "AI_ENABLE_MOCK_PROVIDER",
+      "OPENAI_API_KEY",
+      "API_KEY",
+      "OPERATOR_AUTONOMY_CEILING",
+      "AUTONOMY_ALLOW_OWNER_LEVEL",
+    ]) {
       delete process.env[key];
     }
+    // /ai/invoke requires autonomy 3, so the deployment ceiling has to permit 3
+    // for these routes to be reachable at all. The default 2 refuses it, which is
+    // the honest fail-closed behaviour and is asserted separately below.
+    process.env.OPERATOR_AUTONOMY_CEILING = "3";
     registry = new AiProviderRegistry();
     provider = new TestProvider([pricedModel]);
     registry.register(provider);
@@ -145,6 +156,46 @@ describe("AiController", () => {
       await expect(
         call(controller, { model: "priced-1", messages: [{ content: "hi" }], autonomyLevel: 3 }, VIEWER),
       ).rejects.toThrow(/may not invoke/);
+    });
+
+    it("clamps a declared level to the server ceiling instead of trusting the body", async () => {
+      // The declared level is a request. With the ceiling at 3, a declared 5
+      // (and level 5 is owner-only anyway) resolves to 3 and the call is allowed.
+      const result = (await call(controller, {
+        model: "priced-1",
+        messages: [{ content: "hi" }],
+        autonomyLevel: 5,
+      })) as { content: string };
+      expect(result.content).toBe("test completion");
+    });
+
+    it("refuses the route at the default ceiling of 2, which is below the required 3", async () => {
+      delete process.env.OPERATOR_AUTONOMY_CEILING;
+      await expect(
+        call(controller, { model: "priced-1", messages: [{ content: "hi" }], autonomyLevel: 3 }),
+      ).rejects.toThrow(/below the required 3/);
+      expect(provider.calls).toBe(0);
+    });
+  });
+
+  describe("status honesty", () => {
+    it("reports the autonomy authority so a refused invoke is diagnosable", async () => {
+      const status = (await service.status()) as {
+        autonomy: { operatorCeiling: number; operatorCeilingSource: string; invokeRequiredLevel: number; invokePermitted: boolean };
+      };
+      expect(status.autonomy.operatorCeiling).toBe(3);
+      expect(status.autonomy.operatorCeilingSource).toBe("env");
+      expect(status.autonomy.invokeRequiredLevel).toBe(3);
+      expect(status.autonomy.invokePermitted).toBe(true);
+    });
+
+    it("reports invoke as not permitted at the default ceiling", async () => {
+      delete process.env.OPERATOR_AUTONOMY_CEILING;
+      const status = (await service.status()) as {
+        autonomy: { operatorCeiling: number; invokePermitted: boolean };
+      };
+      expect(status.autonomy.operatorCeiling).toBe(2);
+      expect(status.autonomy.invokePermitted).toBe(false);
     });
   });
 

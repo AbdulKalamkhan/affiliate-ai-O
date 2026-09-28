@@ -21,8 +21,8 @@ import {
 
 import { AiService } from "./ai.service";
 import { AI_PROVIDERS, AiError, isAiProviderName, type AiProviderName } from "./ai-types";
-import { AUTONOMY_LEVELS, DEFAULT_AUTONOMY_LEVEL } from "../boss/boss.service";
-import { CurrentPrincipal } from "../security/principal";
+import { resolveEffectiveAutonomy } from "../security/autonomy";
+import { CurrentPrincipal, type Principal } from "../security/principal";
 
 /**
  * Translate a typed boundary error into an HTTP status. The service deliberately
@@ -89,11 +89,12 @@ export class AiController {
    * through a typed tool and a NestJS service to reach the database.
    *
    * Authorization is enforced in the service against the AUTHENTICATED
-   * principal. `autonomyLevel` is accepted only because the rest of this API
-   * already treats a declared autonomy level as the operator's own statement
-   * (see `/boss/commands`); it is validated against the same level set, defaults
-   * to the fail-closed default of 2, and is written to the audit row. It is never
-   * silently raised, and a value below 3 is refused by the service.
+   * principal. `autonomyLevel` is a REQUEST, not an authority: it is validated
+   * against the level set, then capped by the server-side
+   * `OPERATOR_AUTONOMY_CEILING` (default 2), with level 5 reserved for an owner
+   * principal plus an explicit opt-in. The effective level is what gets written
+   * to the audit row. It is never silently raised, and a value below 3 is
+   * refused by the service.
    */
   @Post("invoke")
   async invoke(
@@ -135,7 +136,7 @@ export class AiController {
     if (body.responseFormat !== undefined && body.responseFormat !== "text" && body.responseFormat !== "json_object") {
       throw new BadRequestException('responseFormat must be "text" or "json_object"');
     }
-    const autonomyLevel = this.assertAutonomy(body.autonomyLevel);
+    const autonomyLevel = this.assertAutonomy(body.autonomyLevel, principal);
 
     const response = await this.ai
       .invoke({
@@ -166,12 +167,13 @@ export class AiController {
     };
   }
 
-  /** Same level set the Boss uses, and the same fail-closed default. */
-  private assertAutonomy(value: number | undefined): number {
-    if (value === undefined || value === null) return DEFAULT_AUTONOMY_LEVEL;
-    if (!Number.isInteger(value) || !(AUTONOMY_LEVELS as readonly number[]).includes(value)) {
-      throw new BadRequestException(`autonomyLevel must be an integer in ${AUTONOMY_LEVELS.join("..")}`);
-    }
-    return value;
+  /**
+   * Same level set the Boss uses, the same fail-closed default, and the same
+   * server-side ceiling. A declared level is a request: the persisted level is
+   * capped by the deployment, and level 5 additionally requires an owner
+   * principal plus an explicit opt-in (RULE 10).
+   */
+  private assertAutonomy(value: number | undefined, principal: Principal): number {
+    return resolveEffectiveAutonomy({ requested: value, principal }).effective;
   }
 }

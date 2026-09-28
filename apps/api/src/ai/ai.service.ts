@@ -24,6 +24,7 @@ import { randomUUID } from "node:crypto";
 import type { DbClient } from "../db/db-client";
 import { DB_CLIENT } from "../db/tokens";
 import type { Principal } from "../security/principal";
+import { autonomyAuthorityReport, type AutonomyAuthorityReport } from "../security/autonomy";
 import { AiProviderRegistry } from "./ai-provider.registry";
 import { redactSecrets, redactValue } from "./ai-redaction";
 import {
@@ -105,11 +106,16 @@ export class AiService {
    * `anyConfigured` comes from credentials. `anyVerified` comes from the
    * database: a provider counts as verified only if an earlier real call to it
    * actually succeeded. Configuration can never set that flag.
+   *
+   * It also reports the autonomy authority in force, so a refused invoke is
+   * diagnosable: the operator can see the server ceiling rather than guessing
+   * why their declared level did not apply.
    */
   async status(): Promise<
     ReturnType<AiProviderRegistry["status"]> & {
       invocationTotals: AiUsageTotals;
       verifiedProviders: AiProviderName[];
+      autonomy: AutonomyAuthorityReport & { invokeRequiredLevel: number; invokePermitted: boolean };
     }
   > {
     const [registryStatus, invocations, totals] = await Promise.all([
@@ -120,6 +126,7 @@ export class AiService {
     const verifiedProviders = [
       ...new Set(invocations.map((row) => (row as { provider: AiProviderName }).provider)),
     ].sort();
+    const autonomyAuthority = autonomyAuthorityReport();
     return {
       ...registryStatus,
       // Upgrade the config-only status with real evidence. `configured` alone is
@@ -127,6 +134,11 @@ export class AiService {
       anyVerified: verifiedProviders.length > 0,
       verifiedProviders,
       invocationTotals: totals,
+      autonomy: {
+        ...autonomyAuthority,
+        invokeRequiredLevel: AI_INVOKE_REQUIRED_AUTONOMY,
+        invokePermitted: autonomyAuthority.operatorCeiling >= AI_INVOKE_REQUIRED_AUTONOMY,
+      },
     };
   }
 

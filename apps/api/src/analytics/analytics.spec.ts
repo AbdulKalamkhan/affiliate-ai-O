@@ -333,7 +333,10 @@ describe("AnalyticsService evidence discipline", () => {
   });
 
   it("restricts COGS to the window via the settlement's own createdAt", async () => {
-    const { db } = makeFakeDb();
+    // The clock is pinned to NOW: this test compares a row's createdAt against
+    // the fixed 7d window, so a real-clock row would silently fall outside it
+    // the day after the suite was written.
+    const { db } = makeFakeDb({ now: NOW });
     const seller = await db.sellerAccount.create({
       data: { platform: "AMAZON_SELLER", displayName: "Zora Jewellery" },
     });
