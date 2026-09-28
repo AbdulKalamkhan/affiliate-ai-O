@@ -384,7 +384,144 @@ describe("BossExecutorService", () => {
   });
 
   it("keeps status typing aligned with the policy vocabulary", () => {
-    const typed: ActionStatus[] = ["proposed", "approval_required", "approved", "executed", "failed", "denied", "skipped"];
+    const typed: ActionStatus[] = [
+      "proposed",
+      "approval_required",
+      "approved",
+      "executing",
+      "executed",
+      "failed",
+      "denied",
+      "skipped",
+      "cancelled",
+    ];
     expect(typed).toContain("approval_required");
+    expect(typed).toContain("executing");
+    expect(typed).toContain("cancelled");
+  });
+});
+
+describe("BossExecutorService concurrent execution", () => {
+  let db: ReturnType<typeof makeFakeDb>;
+  let executor: BossExecutorService;
+
+  beforeEach(() => {
+    db = makeFakeDb();
+    executor = new BossExecutorService(db.db);
+  });
+
+  const seed = async () => {
+    const command = await db.db.bossCommand.create({ data: { text: "report revenue" } });
+    const plan = await db.db.bossPlan.create({ data: { commandId: command.id, objective: "o" } });
+    const task = await db.db.bossTask.create({ data: { planId: plan.id, order: 1, title: "t" } });
+    return db.db.bossAction.create({
+      data: { taskId: task.id, tool: "content.draft", input: { command: "x" }, autonomyLevel: 2, requiredAutonomy: 2 },
+    });
+  };
+
+  it("lets only one of two concurrent executions reach the side effect", async () => {
+    // The invariant that matters: a side-effecting tool must not run twice for
+    // one action, no matter which guard catches the second caller.
+    const action = await seed();
+    const [first, second] = await Promise.all([
+      executor.executeAction(action.id as string),
+      executor.executeAction(action.id as string),
+    ]);
+    const executed = [first, second].filter((r) => r.executed === true);
+    expect(executed).toHaveLength(1);
+    expect(db.rows.contentAsset).toHaveLength(1);
+  });
+
+  it("claims the action atomically, so a stale observed status loses the compare-and-set", async () => {
+    const action = await seed();
+    // Both callers observed "proposed" before either wrote: this is exactly the
+    // interleaving a blind `update` cannot defend against.
+    const claimA = await db.db.bossAction.updateMany({
+      where: { id: action.id, status: "proposed" },
+      data: { status: "executing" },
+    });
+    const claimB = await db.db.bossAction.updateMany({
+      where: { id: action.id, status: "proposed" },
+      data: { status: "executing" },
+    });
+    expect(claimA.count).toBe(1);
+    expect(claimB.count).toBe(0);
+  });
+
+  it("denies a re-run while the action is mid-execution", async () => {
+    const action = await seed();
+    await db.db.bossAction.update({ where: { id: action.id }, data: { status: "executing" } });
+    const result = await executor.executeAction(action.id as string);
+    expect(result.executed).toBe(false);
+    expect(result.denyCode).toBe("ALREADY_EXECUTING");
+    expect(db.rows.contentAsset).toHaveLength(0);
+  });
+
+  it("audits that an execution started and the race it lost", async () => {
+    const action = await seed();
+    await executor.executeAction(action.id as string);
+    const verbs = db.rows.bossAuditLog.map((l) => l.verb as string);
+    expect(verbs).toContain("execution_started");
+    expect(verbs).toContain("executed");
+  });
+});
+
+describe("BossExecutorService.cancelAction", () => {
+  let db: ReturnType<typeof makeFakeDb>;
+  let executor: BossExecutorService;
+
+  beforeEach(() => {
+    db = makeFakeDb();
+    executor = new BossExecutorService(db.db);
+  });
+
+  const seed = async (status: string) => {
+    const command = await db.db.bossCommand.create({ data: { text: "x" } });
+    const plan = await db.db.bossPlan.create({ data: { commandId: command.id, objective: "o" } });
+    const task = await db.db.bossTask.create({ data: { planId: plan.id, order: 1, title: "t" } });
+    return db.db.bossAction.create({
+      data: { taskId: task.id, tool: "analytics.read", input: {}, autonomyLevel: 2, requiredAutonomy: 1, status },
+    });
+  };
+
+  it("cancels a proposed action and audits who cancelled it", async () => {
+    const action = await seed("proposed");
+    const result = await executor.cancelAction(action.id as string, { actor: "api-key-owner", reason: "not needed" });
+    expect(result.cancelled).toBe(true);
+    expect(db.rows.bossAction.find((a) => a.id === action.id)?.status).toBe("cancelled");
+    const audit = db.rows.bossAuditLog.find((l) => l.verb === "cancelled");
+    expect(audit?.actor).toBe("api-key-owner");
+    expect(audit?.detail).toMatchObject({ reason: "not needed" });
+  });
+
+  it("cancels a pending approval so it can never be approved afterwards", async () => {
+    const action = await seed("approval_required");
+    await db.db.bossApproval.create({ data: { actionId: action.id, status: "pending" } });
+    await executor.cancelAction(action.id as string);
+    expect(db.rows.bossApproval[0].status).toBe("cancelled");
+  });
+
+  it("refuses to cancel a terminal action", async () => {
+    const action = await seed("executed");
+    const result = await executor.cancelAction(action.id as string);
+    expect(result.cancelled).toBe(false);
+    expect(result.reason).toMatch(/terminal/);
+    expect(db.rows.bossAction.find((a) => a.id === action.id)?.status).toBe("executed");
+  });
+
+  it("refuses to cancel an action that is currently executing", async () => {
+    const action = await seed("executing");
+    const result = await executor.cancelAction(action.id as string);
+    expect(result.cancelled).toBe(false);
+    expect(result.reason).toMatch(/currently executing/);
+    expect(db.rows.bossAction.find((a) => a.id === action.id)?.status).toBe("executing");
+  });
+
+  it("treats a cancelled action as terminal and refuses re-execution", async () => {
+    const action = await seed("proposed");
+    await executor.cancelAction(action.id as string);
+    const result = await executor.executeAction(action.id as string);
+    expect(result.executed).toBe(false);
+    expect(result.denyCode).toBe("ALREADY_TERMINAL");
   });
 });

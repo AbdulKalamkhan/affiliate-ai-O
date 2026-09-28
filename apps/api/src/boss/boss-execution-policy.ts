@@ -14,6 +14,9 @@
 //      at autonomy 5 ("controlled autonomous execution").
 //   5. An action that already reached a terminal state is never re-executed
 //      (idempotency at the action level).
+//   6. Exactly one caller may hold an action at a time. `executing` is claimed
+//      with a compare-and-set, so two concurrent executes cannot both run a
+//      side-effecting tool (a plain `update` would let them).
 
 import type { BossToolContract, BossToolName } from "./boss-tools";
 
@@ -21,14 +24,21 @@ export const ACTION_STATUSES = [
   "proposed",
   "approval_required",
   "approved",
+  "executing",
   "executed",
   "failed",
   "denied",
   "skipped",
+  "cancelled",
 ] as const;
 export type ActionStatus = (typeof ACTION_STATUSES)[number];
 
-export const TERMINAL_ACTION_STATUSES: readonly ActionStatus[] = ["executed", "denied", "skipped"];
+/**
+ * `failed` is deliberately NOT terminal: a failed action is retryable. That is
+ * also why the compare-and-set below matters, because a retried action can be
+ * picked up by a second worker while the first is still unwinding.
+ */
+export const TERMINAL_ACTION_STATUSES: readonly ActionStatus[] = ["executed", "denied", "skipped", "cancelled"];
 
 export const actionStatuses = (): readonly ActionStatus[] => ACTION_STATUSES;
 
@@ -56,11 +66,13 @@ export type PolicyDecision =
 export type DenyCode =
   | "UNKNOWN_TOOL"
   | "ALREADY_TERMINAL"
+  | "ALREADY_EXECUTING"
   | "AUTONOMY_TOO_LOW"
   | "APPROVAL_REQUIRED"
   | "APPROVAL_PENDING"
   | "APPROVAL_REJECTED"
-  | "APPROVAL_EXPIRED";
+  | "APPROVAL_EXPIRED"
+  | "EXECUTION_RACE_LOST";
 
 export interface ToolDefinition extends BossToolContract {
   sideEffect: SideEffect;
@@ -90,6 +102,15 @@ export const evaluateExecutionPolicy = (input: PolicyInput): PolicyDecision => {
       denyCode: "ALREADY_TERMINAL",
       nextStatus: input.actionStatus as ActionStatus,
       reason: `action already reached terminal status "${input.actionStatus}" — re-execution is not permitted`,
+    };
+  }
+
+  if (input.actionStatus === "executing") {
+    return {
+      allowed: false,
+      denyCode: "ALREADY_EXECUTING",
+      nextStatus: "executing",
+      reason: "another caller is already executing this action",
     };
   }
 

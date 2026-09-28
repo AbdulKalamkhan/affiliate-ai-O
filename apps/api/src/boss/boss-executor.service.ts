@@ -36,6 +36,13 @@ export interface ExecuteActionResult {
   output?: unknown;
 }
 
+export interface CancelActionResult {
+  actionId: string;
+  status: ActionStatus | string;
+  cancelled: boolean;
+  reason: string;
+}
+
 type Ctx = {
   action: {
     id: string;
@@ -180,6 +187,33 @@ export class BossExecutorService {
       };
     }
 
+    // Claim the action with a compare-and-set BEFORE running anything.
+    // `setActionStatus` is a blind update, so two concurrent executes of the
+    // same action would both pass the policy above and both call the tool. The
+    // CAS makes the claim atomic: exactly one caller sees count 1 and runs.
+    const claimed = await this.client.bossAction.updateMany({
+      where: { id: action.id, status: action.status },
+      data: { status: "executing" },
+    });
+    if (claimed.count === 0) {
+      const reason = "another caller claimed this action for execution first";
+      await this.audit(commandId, "action", action.id, "execution_denied", actor, {
+        tool,
+        denyCode: "EXECUTION_RACE_LOST",
+        observedStatus: action.status,
+        reason,
+      });
+      return {
+        actionId: action.id,
+        tool,
+        status: action.status,
+        executed: false,
+        denyCode: "EXECUTION_RACE_LOST" as DenyCode,
+        reason,
+      };
+    }
+    await this.audit(commandId, "action", action.id, "execution_started", actor, { tool });
+
     // Policy allowed it. Now: is there actually a handler?
     if (!isImplemented(tool)) {
       const call = await this.client.bossToolCall.create({
@@ -263,6 +297,60 @@ export class BossExecutorService {
         reason: message,
       };
     }
+  }
+
+  /**
+   * Cancel a not-yet-terminal action. Claimed with a compare-and-set so a
+   * cancellation cannot race an in-flight execution into an inconsistent pair of
+   * states: whoever loses the CAS gets an honest refusal.
+   */
+  async cancelAction(actionId: string, opts: { actor?: string; reason?: string } = {}): Promise<CancelActionResult> {
+    const actor = opts.actor ?? EXECUTOR_ACTOR;
+    const { action, commandId } = await this.loadAction(actionId);
+    const reason = opts.reason ?? "cancelled by operator";
+
+    if (isTerminal(action.status)) {
+      const conflict = `action is already in terminal status "${action.status}" and cannot be cancelled`;
+      await this.audit(commandId, "action", action.id, "cancel_refused", actor, {
+        tool: action.tool,
+        status: action.status,
+        reason: conflict,
+      });
+      return { actionId: action.id, status: action.status, cancelled: false, reason: conflict };
+    }
+    if (action.status === "executing") {
+      const conflict = "action is currently executing and cannot be cancelled";
+      await this.audit(commandId, "action", action.id, "cancel_refused", actor, {
+        tool: action.tool,
+        status: action.status,
+        reason: conflict,
+      });
+      return { actionId: action.id, status: "executing", cancelled: false, reason: conflict };
+    }
+
+    const claimed = await this.client.bossAction.updateMany({
+      where: { id: action.id, status: action.status },
+      data: { status: "cancelled" },
+    });
+    if (claimed.count === 0) {
+      const conflict = "another caller changed this action's status first";
+      await this.audit(commandId, "action", action.id, "cancel_refused", actor, {
+        tool: action.tool,
+        reason: conflict,
+      });
+      return { actionId: action.id, status: action.status, cancelled: false, reason: conflict };
+    }
+
+    // A pending approval for a cancelled action must not remain approvable.
+    const pending = await this.currentApproval(action.id);
+    if (pending && pending.status === "pending") {
+      await this.client.bossApproval.update({
+        where: { id: pending.id as string },
+        data: { status: "cancelled" },
+      });
+    }
+    await this.audit(commandId, "action", action.id, "cancelled", actor, { tool: action.tool, reason });
+    return { actionId: action.id, status: "cancelled", cancelled: true, reason };
   }
 
   private async ensureApproval(actionId: string, commandId: string | null, reason: string, actor: string) {

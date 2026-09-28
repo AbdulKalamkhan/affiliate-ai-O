@@ -50,6 +50,23 @@ export class BossExecutionController {
     return this.executor.executeAction(id);
   }
 
+  /**
+   * Cancel a not-yet-terminal action. Refuses a terminal action and refuses one
+   * that is currently executing, so a cancellation can never be reported as
+   * successful while the tool is still running.
+   */
+  @Post("actions/:id/cancel")
+  cancel(
+    @Param("id") id: string,
+    @CurrentPrincipal() principal: Principal,
+    @Body() body: { reason?: string } = {},
+  ) {
+    return this.executor.cancelAction(id, {
+      actor: principal.id,
+      ...(body?.reason ? { reason: body.reason } : {}),
+    });
+  }
+
   @Get("tool-calls")
   toolCalls() {
     return this.executor.listToolCalls();

@@ -227,6 +227,16 @@ export function makeFakeDb(options: FakeDbOptions = {}): FakeDbResult {
     },
     // Mirrors the AI boundary schema: a missing price is NULL (UNKNOWN), never 0.
     aiInvocation: { costState: "unknown_usage", verified: false },
+    // Mirrors the BossAction schema defaults. Without these the double created
+    // actions with `status: undefined`, so a compare-and-set on
+    // `where: { id, status: "proposed" }` matched nothing and the atomic claim
+    // looked broken when it was only the double that was unfaithful.
+    bossAction: {
+      status: "proposed",
+      permissionResult: "granted",
+      autonomyLevel: 2,
+      requiredAutonomy: 2,
+    },
   };
 
   const withDefaults = (name: string, data: Record<string, unknown>): Record<string, unknown> => ({
@@ -493,6 +503,36 @@ export function makeFakeDb(options: FakeDbOptions = {}): FakeDbResult {
         throw error;
       }
       return list[index];
+    },
+    /**
+     * Mirrors Prisma's compare-and-set semantics, which is what makes
+     * `updateMany({ where: { id, status: "proposed" } })` usable as an atomic
+     * claim: the count is how a caller learns it WON the race (1) or LOST it (0).
+     * Updating zero rows is not an error, unlike `update`, which throws P2025.
+     */
+    updateMany: async ({
+      where,
+      data,
+    }: {
+      where?: Record<string, unknown>;
+      data: Record<string, unknown>;
+    }): Promise<{ count: number }> => {
+      const list = ensure(name);
+      const targets = list
+        .map((row, index) => ({ row, index }))
+        .filter(({ row }) => matches(row, where, name, ensure));
+      for (const { index } of targets) {
+        const previous = list[index] as FakeRow;
+        const merged = { ...previous, ...data } as FakeRow;
+        list[index] = merged;
+        try {
+          assertUnique(name, merged, previous.id as string);
+        } catch (error) {
+          list[index] = previous;
+          throw error;
+        }
+      }
+      return { count: targets.length };
     },
     delete: async ({ where }: { where: Record<string, unknown> }): Promise<FakeRow | null> => {
       const list = ensure(name);

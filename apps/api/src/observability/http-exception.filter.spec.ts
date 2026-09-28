@@ -82,6 +82,29 @@ describe("AllExceptionsFilter", () => {
     expect(JSON.stringify(loggerErrorSpy.mock.calls[0][1])).toContain("stack trace detail");
   });
 
+  describe("5xx stack redaction", () => {
+    it("never writes a bearer credential from an upstream error into the log", () => {
+      const { host } = makeHost("/ai/invoke");
+      filter.catch(new Error("upstream rejected Authorization: Bearer sk-leak-in-log-1234567890"), host);
+      const logged = JSON.stringify(loggerErrorSpy.mock.calls[0][1]);
+      expect(logged).not.toContain("sk-leak-in-log-1234567890");
+      expect(logged).toContain("[REDACTED]");
+    });
+
+    it("never writes a connection-string password into the log", () => {
+      const { host } = makeHost("/analytics");
+      filter.catch(new Error("connection failed postgresql://aios:hunter2@db:5432/aios"), host);
+      const logged = JSON.stringify(loggerErrorSpy.mock.calls[0][1]);
+      expect(logged).not.toContain("hunter2");
+    });
+
+    it("still keeps the redacted 5xx detail so the cause remains diagnosable", () => {
+      const { host } = makeHost("/analytics");
+      filter.catch(new Error("connect ECONNREFUSED 10.0.0.5:5432"), host);
+      expect(JSON.stringify(loggerErrorSpy.mock.calls[0][1])).toContain("ECONNREFUSED");
+    });
+  });
+
   it("does not log for an ordinary 4xx client error", () => {
     const { host } = makeHost("/bad");
     filter.catch(new BadRequestException("your input"), host);

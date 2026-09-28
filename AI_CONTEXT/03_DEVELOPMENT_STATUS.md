@@ -711,3 +711,57 @@ other test comparing a row against a fixed window needs the same treatment.
 typecheck clean (4/4), lint clean (3/3), api+web builds clean. New
 `security/autonomy.spec.ts` (14 specs) is the regression guard for the escalation
 path, plus 4 new Boss specs and 4 new AI status/autonomy specs.
+## EXECUTOR ATOMICITY + STATUS VOCABULARY + LOG REDACTION — IMPLEMENTED + TESTED 2026-09-28
+
+Three further audit findings in the executor and observability layers.
+
+**1. Concurrent execution could double-run a side-effecting tool.**
+`setActionStatus` was a blind `update`, so two concurrent
+`POST /boss/actions/:id/execute` calls both passed the policy check and both
+invoked the tool. The claim is now a **compare-and-set**:
+`updateMany({ where: { id, status: <observed> }, data: { status: "executing" } })`.
+Exactly one caller sees `count: 1` and runs; the loser is refused with
+`EXECUTION_RACE_LOST`, audited, and does **not** run the tool. The claim happens
+before the implementation check and before the tool call, so there is no window
+in which a tool runs unclaimed.
+
+**2. `executing` and `cancelled` statuses did not exist.** The documented
+vocabulary was missing both: nothing was ever written while a tool ran, and
+there was no way to abandon an action. Both are now real transitions.
+`executing` is what makes the atomic claim above possible; `cancelled` is
+terminal, so a cancelled action can never be executed afterwards.
+`POST /boss/actions/:id/cancel` is owner-attributed, refuses a terminal action,
+refuses an action that is currently executing (it cannot report success while
+the tool is still running), and **cancels any pending approval** so a
+cancelled action's approval can never later be granted. `failed` stays
+non-terminal on purpose: a failed action is retryable.
+
+**3. 5xx stack traces were logged unredacted.** The global exception filter
+already masked 5xx from the *client*, but wrote
+`exception.stack` to the log verbatim. That is where a secret reliably leaks: a
+driver error embeds the connection string or the `Authorization: Bearer ...`
+header it was built from, and the stack frame carries the message verbatim. The
+log now passes through the same `redactSecrets` the AI boundary already applies
+to prompts and responses. The cause stays diagnosable; the credential does not.
+
+**Two test-double defects found while writing the regression tests** (both
+fixed, both would have hidden real bugs):
+- `makeFakeDb` had no `updateMany` at all, so compare-and-set semantics could
+  not be exercised. It now implements Prisma's real behaviour, including
+  "updating zero rows is not an error" (unlike `update`, which throws P2025).
+- `makeFakeDb` mirrored the Prisma schema defaults for three models but not
+  `BossAction`, so double-created actions had `status: undefined` and a CAS on
+  `where: { id, status: "proposed" }` matched nothing — the atomic claim looked
+  broken when the double was simply unfaithful.
+
+One of my own first drafts of the race test was wrong in an instructive way:
+resetting a completed action back to `proposed` and re-executing it is a
+legitimate retry, not a race. The test now asserts the invariant that actually
+matters — under `Promise.all` of two concurrent executes, exactly one reaches
+the side effect and exactly one asset row exists.
+
+**Verification:** 550/550 API tests (33 suites, up from 538), 7/7 web,
+typecheck clean, lint clean, api+web builds clean. 12 new specs cover the CAS
+claim, the mid-execution refusal, the audit trail, all four cancel outcomes, and
+four secret-redaction cases (bearer token, connection-string password, retained
+diagnostic detail).

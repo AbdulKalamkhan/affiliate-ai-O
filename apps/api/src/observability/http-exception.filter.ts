@@ -15,7 +15,14 @@ import { STATUS_CODES } from "node:http";
 // throttling (429) are the two responses an attacker produces most, and they
 // were previously invisible because only 5xx reached the logger. The credential
 // itself is never logged — only method, path, status and the route it targeted.
+//
+// A 5xx stack is redacted before it is written. The stack is the one place a
+// secret reliably leaks: a driver error embeds the connection string or the
+// `Authorization: Bearer ...` header it was built from, and the stack frame
+// usually carries the message verbatim. `redactSecrets` is the same function
+// the AI boundary already applies to prompts and responses.
 
+import { redactSecrets } from "../ai/ai-redaction";
 import { PRINCIPAL_KEY, type Principal } from "../security/principal";
 
 /** Statuses that are logged at WARN because they indicate abuse or auth failure. */
@@ -59,8 +66,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
     }
 
     if (status >= 500) {
-      const detail = exception instanceof Error ? exception.stack ?? exception.message : String(exception);
-      this.logger.error(`${req.method} ${path} -> ${status}`, detail);
+      const raw = exception instanceof Error ? exception.stack ?? exception.message : String(exception);
+      this.logger.error(`${req.method} ${path} -> ${status}`, redactSecrets(raw));
     } else if (SECURITY_RELEVANT_STATUSES.includes(status)) {
       // 401/403/429 mean someone was refused or throttled: log them so abuse is
       // visible, without ever recording the credential that was presented.
