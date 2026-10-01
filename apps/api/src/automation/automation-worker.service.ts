@@ -274,7 +274,21 @@ export class AutomationWorkerService implements OnApplicationBootstrap, OnApplic
         // implementation, so queueing an action is never a policy bypass.
         const result = await this.executor.executeAction(actionId, { actor: this.workerId ?? WORKER_ACTOR });
         if (result.status === "failed") {
+          // A handler that actually threw is transient, so it gets the retry
+          // budget like any other transient error.
           throw new Error(result.reason);
+        }
+        // Every other non-success is a VERDICT, not a transient fault:
+        // `denied`, `skipped`, `approval_required` and a lost execution race
+        // are all re-evaluated deterministically, so retrying cannot change the
+        // answer. Reporting them as succeeded jobs would let the queue claim
+        // healthy work while the action never ran.
+        if (result.status !== "executed") {
+          throw new NonRetryableJobError(
+            `action ${actionId} did not execute: status="${result.status}"` +
+            (result.denyCode ? ` denyCode=${result.denyCode}` : "") +
+            ` reason=${result.reason}`,
+          );
         }
         return result;
       }

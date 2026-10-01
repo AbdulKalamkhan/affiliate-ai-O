@@ -765,3 +765,56 @@ typecheck clean, lint clean, api+web builds clean. 12 new specs cover the CAS
 claim, the mid-execution refusal, the audit trail, all four cancel outcomes, and
 four secret-redaction cases (bearer token, connection-string password, retained
 diagnostic detail).
+## APPROVAL SCOPING + AUTOMATION OUTCOME HONESTY — IMPLEMENTED + TESTED 2026-09-28
+
+**1. An approval recorded only "action X is approved".** It carried no action
+type, no version, no target and no evidence, so there was nothing to check the
+consent against: mutating an action after approval left the earlier approval
+silently in force. The requirement is that a version-mismatched approval is
+rejected AUTOMATICALLY, which was impossible to implement, not merely unimplemented.
+
+Additive migration `20260928201500_approval_scoping_and_action_version`:
+`BossAction.version Int @default(1)`, and on `BossApproval` the columns
+`actionType`, `actionVersion`, `targetAccount`, `targetObject`, `inputHash`,
+`evidence Json`. Every added column is nullable and the version default matches
+the state pre-existing rows are already at, so nothing is rewritten and no
+constraint is tightened.
+
+- `actionInputHash()` (`boss/approval-scope.ts`) is a sha256 over the tool plus a
+  key-order-stable JSON of the input, so key order cannot change the digest and
+  a mutated value must.
+- The policy now denies with `APPROVAL_STALE` when the approval's recorded
+  version or digest no longer matches the action. This is checked on **every**
+  execution attempt, not once at approval time.
+- `decide()` also refuses to approve a stale approval, so the Owner is told at the
+  moment they click approve instead of the approval appearing to succeed and then
+  failing at execution.
+- `requestForAction` records the scope server-side (the caller can only add
+  `targetAccount` / `targetObject` / `evidence`) and **replaces** a pending
+  request that has gone stale, cancelling it rather than handing the Owner an
+  obsolete consent.
+- A legacy row with no recorded version or digest is treated as still current.
+  Inventing a mismatch would refuse approvals that are in fact valid, so absence
+  of evidence is not evidence of change.
+
+**2. `action.execute` recorded a succeeded job for actions that never ran.** The
+handler only threw on `status === "failed"`, so an action the executor refused
+(`denied`) or that had no handler (`skipped`) left the job marked `succeeded` with
+`counts.succeeded = 1`. The queue was reporting healthy work while nothing was
+executed. Now only `executed` is a job success. `failed` stays retryable (a real
+handler fault is transient); every other non-success is a deterministic VERDICT
+and dead-letters immediately, because re-running the policy cannot change the
+answer.
+
+**Verification:** 567/567 API tests (33 suites, up from 550), 7/7 web, typecheck
+clean, lint clean, api+web builds clean, Prisma schema valid. 19 new specs: the
+recorded scope, decide-time staleness on version and on input, stale-pending
+replacement, still-valid pending reuse, execution-time auto-rejection on both
+staleness dimensions, a still-matching approval, legacy-row tolerance, a
+cancelled approval, five hash properties (key-order stability, value sensitivity,
+tool sensitivity, missing-vs-empty input, nested-vs-string), and three automation
+outcome cases.
+
+**Not yet verified in production.** The migration has been applied only locally;
+it reaches production through the normal startup migration gate on the next
+deploy of `main`.

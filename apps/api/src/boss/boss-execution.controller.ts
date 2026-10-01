@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import type { Prisma } from "@ai-os/database";
 
 import { CurrentPrincipal, type Principal } from "../security/principal";
 import { BossApprovalService } from "./boss-approval.service";
@@ -109,8 +110,17 @@ export class BossExecutionController {
   }
 
   @Post("actions/:id/request-approval")
-  requestApproval(@Param("id") id: string, @Body() body: { reason?: string } = {}) {
-    return this.approvals.requestForAction(id, body?.reason);
+  requestApproval(
+    @Param("id") id: string,
+    @Body() body: { reason?: string; targetAccount?: string; targetObject?: string; evidence?: unknown } = {},
+  ) {
+    // The action type, action version and input digest are recorded
+    // server-side; a caller can only supply the extra scoping context.
+    return this.approvals.requestForAction(id, body?.reason, undefined, {
+      ...(body?.targetAccount ? { targetAccount: body.targetAccount } : {}),
+      ...(body?.targetObject ? { targetObject: body.targetObject } : {}),
+      ...(body?.evidence !== undefined ? { evidence: body.evidence as Prisma.InputJsonValue } : {}),
+    });
   }
 
   // ------------------------------------------------------------- AI memory

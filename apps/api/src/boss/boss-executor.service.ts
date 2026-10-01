@@ -21,6 +21,7 @@ import {
   isTerminal,
 } from "./boss-execution-policy";
 import type { BossToolInput, BossToolName } from "./boss-tools";
+import { actionInputHash } from "./approval-scope";
 import { classifyIntent, generatePlan } from "./boss-plan-generator";
 
 export const EXECUTOR_ACTOR = "executor";
@@ -53,6 +54,7 @@ type Ctx = {
     requiredAutonomy: number;
     permissionResult: string;
     taskId: string;
+    version?: number | null;
     task?: { plan?: { commandId?: string | null } };
   };
   commandId: string | null;
@@ -143,6 +145,7 @@ export class BossExecutorService {
     const contract = toolDefinition(tool)!;
     const sideEffect = sideEffectOf(tool);
     const approval = await this.currentApproval(action.id);
+    const currentInputHash = actionInputHash(tool, action.input ?? {});
 
     const decision: PolicyDecision = evaluateExecutionPolicy({
       tool: tool as BossToolName,
@@ -151,8 +154,15 @@ export class BossExecutorService {
       sideEffect,
       actionStatus: action.status,
       approval: approval
-        ? { status: String(approval.status), expiresAt: (approval.expiresAt as Date | null) ?? null }
+        ? {
+            status: String(approval.status),
+            expiresAt: (approval.expiresAt as Date | null) ?? null,
+            actionVersion: (approval.actionVersion as number | null) ?? null,
+            inputHash: (approval.inputHash as string | null) ?? null,
+          }
         : null,
+      actionVersion: action.version ?? 1,
+      currentInputHash,
     });
 
     if (!decision.allowed) {
@@ -356,12 +366,23 @@ export class BossExecutorService {
   private async ensureApproval(actionId: string, commandId: string | null, reason: string, actor: string) {
     const existing = await this.currentApproval(actionId);
     if (existing && existing.status === "pending") return existing;
+    // The auto-requested approval records the same scope an explicit request
+    // would: what the decision is for, and the state it was requested against.
+    const action = await this.client.bossAction.findUnique({ where: { id: actionId } });
     const created = await this.client.bossApproval.create({
       data: {
         actionId,
         status: "pending",
         reason,
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        actionType: (action?.tool as string | undefined) ?? null,
+        actionVersion: action?.version ?? 1,
+        inputHash: action ? actionInputHash(String(action.tool), action.input ?? {}) : null,
+        evidence: {
+          requestedBy: actor,
+          tool: (action?.tool as string | undefined) ?? null,
+          reason,
+        } as Prisma.InputJsonValue,
       },
     });
     await this.audit(commandId, "approval", created.id as string, "requested", actor, { actionId, reason });

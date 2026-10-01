@@ -6,8 +6,9 @@ import { prisma } from "@ai-os/database";
 import type { DbClient } from "../db/db-client";
 import { DB_CLIENT } from "../db/tokens";
 import { APPROVAL_EXPIRY_HOURS, approvalExpired, type ActionStatus } from "./boss-execution-policy";
+import { actionInputHash } from "./approval-scope";
 
-export const APPROVAL_STATUSES = ["pending", "approved", "rejected", "expired"] as const;
+export const APPROVAL_STATUSES = ["pending", "approved", "rejected", "expired", "cancelled"] as const;
 export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
 
 export interface ApprovalActionRow {
@@ -15,6 +16,8 @@ export interface ApprovalActionRow {
   tool: string;
   status: string;
   taskId: string;
+  input?: unknown;
+  version?: number | null;
   task?: { plan?: { commandId?: string | null } };
 }
 
@@ -23,6 +26,12 @@ export interface CreateApprovalInput {
   reason?: string;
   decidedBy?: string;
   expiresInHours?: number;
+  /** The account/marketplace this decision is scoped to, when there is one. */
+  targetAccount?: string | null;
+  /** The specific object id this decision is scoped to, e.g. a content asset. */
+  targetObject?: string | null;
+  /** What the approver was shown, recorded verbatim for the audit trail. */
+  evidence?: Prisma.InputJsonValue;
 }
 
 @Injectable()
@@ -42,13 +51,31 @@ export class BossApprovalService {
   /**
    * Request approval for an action. Idempotent per pending state: if a pending
    * approval already exists, it is returned rather than duplicated.
+   *
+   * The request records what the decision is FOR — the action type, the action
+   * version, and a digest of the tool+input — so the policy can reject it later
+   * if any of those change. A pending approval that is already stale is not
+   * returned as-is: it is replaced, because answering a fresh request with an
+   * obsolete consent would be the bug this whole mechanism exists to prevent.
    */
-  async requestForAction(actionId: string, reason?: string, expiresInHours = APPROVAL_EXPIRY_HOURS) {
+  async requestForAction(actionId: string, reason?: string, expiresInHours = APPROVAL_EXPIRY_HOURS, scope: Partial<CreateApprovalInput> = {}) {
     // Throws NotFound for an unknown action before anything is written.
-    await this.getAction(actionId);
+    const action = await this.getAction(actionId);
+    const actionVersion = action.version ?? 1;
+    const inputHash = actionInputHash(action.tool, action.input ?? {});
     const existing = await this.latestForAction(actionId);
     if (existing && existing.status === "pending") {
-      return existing;
+      const staleVersion = existing.actionVersion != null && existing.actionVersion !== actionVersion;
+      const staleInput = existing.inputHash != null && existing.inputHash !== inputHash;
+      if (!staleVersion && !staleInput) {
+        return existing;
+      }
+      // The pending request was made against a different state of the action.
+      // Cancel it rather than letting the Owner approve the wrong thing.
+      await this.client.bossApproval.update({
+        where: { id: existing.id as string },
+        data: { status: "cancelled", reason: "superseded: the action changed after this approval was requested" },
+      });
     }
     const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000);
     return this.client.bossApproval.create({
@@ -57,6 +84,12 @@ export class BossApprovalService {
         status: "pending",
         ...(reason ? { reason } : {}),
         expiresAt,
+        actionType: action.tool,
+        actionVersion,
+        inputHash,
+        ...(scope.targetAccount ? { targetAccount: scope.targetAccount } : {}),
+        ...(scope.targetObject ? { targetObject: scope.targetObject } : {}),
+        ...(scope.evidence !== undefined ? { evidence: scope.evidence } : {}),
       },
     });
   }
@@ -114,6 +147,14 @@ export class BossApprovalService {
           `approval ${id} has expired — request a fresh approval instead of approving an expired one`,
         );
       }
+      // Decide-time staleness check. The executor re-checks this too, but
+      // refusing here means the Owner is told the moment they try to approve,
+      // instead of the approval appearing to succeed and then silently failing
+      // at execution.
+      const stale = await this.stalenessReason(approval);
+      if (stale) {
+        throw new ConflictException(`approval ${id} is stale and cannot be approved: ${stale}`);
+      }
     }
     if (next === "rejected" && approval.status !== "pending") {
       throw new ConflictException(`approval ${id} is ${approval.status} and cannot be rejected`);
@@ -149,6 +190,31 @@ export class BossApprovalService {
     });
 
     return updated;
+  }
+
+  /**
+   * Why this approval no longer describes the action, or null when it still does.
+   * A legacy row with no recorded version/hash is treated as current: it was
+   * created before the mechanism existed, and inventing a mismatch would refuse
+   * an approval that is in fact still valid.
+   */
+  private async stalenessReason(approval: { actionId: unknown; actionVersion?: unknown; inputHash?: unknown }): Promise<string | null> {
+    let action: ApprovalActionRow;
+    try {
+      action = await this.getAction(approval.actionId as string);
+    } catch {
+      return "the action it referenced no longer exists";
+    }
+    const actionVersion = action.version ?? 1;
+    const recorded = approval.actionVersion as number | null | undefined;
+    if (recorded != null && recorded !== actionVersion) {
+      return `it was granted against action version ${recorded} but the action is now version ${actionVersion}`;
+    }
+    const recordedHash = approval.inputHash as string | null | undefined;
+    if (recordedHash != null && recordedHash !== actionInputHash(action.tool, action.input ?? {})) {
+      return "the action's input changed after it was requested";
+    }
+    return null;
   }
 
   async list(status?: string) {

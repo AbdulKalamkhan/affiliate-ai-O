@@ -12,6 +12,7 @@ import { toolContract } from "./boss-tools";
 import { listToolDefinitions, sideEffectOf, toolDefinition } from "./boss-tool-registry";
 import { BossApprovalService } from "./boss-approval.service";
 import { BossExecutorService } from "./boss-executor.service";
+import { actionInputHash } from "./approval-scope";
 
 const HOUR = 60 * 60 * 1000;
 
@@ -249,6 +250,142 @@ describe("BossApprovalService", () => {
 
   it("defaults approval expiry to the documented window", () => {
     expect(APPROVAL_EXPIRY_HOURS).toBe(24);
+  });
+});
+
+describe("approval scoping and staleness", () => {
+  let db: ReturnType<typeof makeFakeDb>;
+  let service: BossApprovalService;
+  let executor: BossExecutorService;
+  let actionId: string;
+
+  beforeEach(async () => {
+    db = makeFakeDb();
+    service = new BossApprovalService(db.db);
+    executor = new BossExecutorService(db.db);
+    const command = await db.db.bossCommand.create({ data: { text: "publish pin", autonomyLevel: 5 } });
+    const plan = await db.db.bossPlan.create({ data: { commandId: command.id, objective: "o" } });
+    const task = await db.db.bossTask.create({ data: { planId: plan.id, order: 1, title: "t" } });
+    const action = await db.db.bossAction.create({
+      data: { taskId: task.id, tool: "affiliate.publish", input: { pin: "a" }, autonomyLevel: 5, requiredAutonomy: 4 },
+    });
+    actionId = action.id as string;
+  });
+
+  it("records what the decision is for: type, version, input digest and scope", async () => {
+    const approval = await service.requestForAction(actionId, "needs owner", undefined, {
+      targetAccount: "AMAZON_SELLER",
+      targetObject: "asset-42",
+      evidence: { shownToOwner: "publish pin a to board 3" },
+    });
+    expect(approval.actionType).toBe("affiliate.publish");
+    expect(approval.actionVersion).toBe(1);
+    expect(approval.inputHash).toBe(actionInputHash("affiliate.publish", { pin: "a" }));
+    expect(approval.targetAccount).toBe("AMAZON_SELLER");
+    expect(approval.targetObject).toBe("asset-42");
+    expect(approval.evidence).toMatchObject({ shownToOwner: "publish pin a to board 3" });
+  });
+
+  it("refuses to approve once the action version has moved on", async () => {
+    const approval = await service.requestForAction(actionId);
+    await db.db.bossAction.update({ where: { id: actionId }, data: { version: 2 } });
+    await expect(service.decide(approval.id as string, "approved")).rejects.toBeInstanceOf(ConflictException);
+    expect(db.rows.bossApproval[0].status).toBe("pending");
+  });
+
+  it("refuses to approve once the action input has changed", async () => {
+    const approval = await service.requestForAction(actionId);
+    await db.db.bossAction.update({ where: { id: actionId }, data: { input: { pin: "DIFFERENT" } } });
+    await expect(service.decide(approval.id as string, "approved")).rejects.toThrow(/input changed/);
+  });
+
+  it("replaces a stale pending request instead of returning it as still valid", async () => {
+    const first = await service.requestForAction(actionId);
+    await db.db.bossAction.update({ where: { id: actionId }, data: { version: 2 } });
+    const second = await service.requestForAction(actionId);
+    expect(second.id).not.toBe(first.id);
+    expect(second.actionVersion).toBe(2);
+    expect(db.rows.bossApproval[0].status).toBe("cancelled");
+  });
+
+  it("does not duplicate a still-valid pending request", async () => {
+    const first = await service.requestForAction(actionId);
+    const second = await service.requestForAction(actionId);
+    expect(second.id).toBe(first.id);
+  });
+
+  it("auto-rejects a version-mismatched approval at execution time", async () => {
+    const approval = await service.requestForAction(actionId);
+    await service.decide(approval.id as string, "approved", { decidedBy: "owner" });
+    // The action is then modified without re-approval.
+    await db.db.bossAction.update({ where: { id: actionId }, data: { version: 7, status: "approved" } });
+
+    const result = await executor.executeAction(actionId);
+    expect(result.executed).toBe(false);
+    expect(result.denyCode).toBe("APPROVAL_STALE");
+    expect(result.reason).toMatch(/action version 1.*now version 7/);
+    expect(db.rows.bossToolCall).toHaveLength(0);
+  });
+
+  it("auto-rejects an approval whose input digest no longer matches", async () => {
+    const approval = await service.requestForAction(actionId);
+    await service.decide(approval.id as string, "approved", { decidedBy: "owner" });
+    await db.db.bossAction.update({
+      where: { id: actionId },
+      data: { status: "approved", input: { pin: "something else entirely" } },
+    });
+
+    const result = await executor.executeAction(actionId);
+    expect(result.executed).toBe(false);
+    expect(result.denyCode).toBe("APPROVAL_STALE");
+    expect(result.reason).toMatch(/different action input/);
+  });
+
+  it("still executes when the version and digest both still match", async () => {
+    const approval = await service.requestForAction(actionId);
+    await service.decide(approval.id as string, "approved", { decidedBy: "owner" });
+    const result = await executor.executeAction(actionId);
+    // affiliate.publish is honestly not_implemented, so it must be skipped
+    // rather than succeed: a valid approval does not conjure a handler.
+    expect(result.status).toBe("skipped");
+    expect(db.rows.bossToolCall[0].status).toBe("skipped");
+  });
+
+  it("treats a legacy approval with no recorded version as still current", async () => {
+    // Rows created before this mechanism existed must not be refused by an
+    // invented mismatch.
+    await db.db.bossApproval.create({ data: { actionId, status: "approved" } });
+    const result = await executor.executeAction(actionId);
+    expect(result.status).toBe("skipped");
+  });
+
+  it("treats a cancelled approval as not executable", async () => {
+    await db.db.bossApproval.create({ data: { actionId, status: "cancelled" } });
+    const result = await executor.executeAction(actionId);
+    expect(result.executed).toBe(false);
+    expect(result.denyCode).toBe("APPROVAL_PENDING");
+  });
+});
+
+describe("actionInputHash", () => {
+  it("is stable across key ordering", () => {
+    expect(actionInputHash("t", { a: 1, b: 2 })).toBe(actionInputHash("t", { b: 2, a: 1 }));
+  });
+
+  it("changes when any input value changes", () => {
+    expect(actionInputHash("t", { a: 1 })).not.toBe(actionInputHash("t", { a: 2 }));
+  });
+
+  it("changes when the tool changes even for identical input", () => {
+    expect(actionInputHash("t1", { a: 1 })).not.toBe(actionInputHash("t2", { a: 1 }));
+  });
+
+  it("treats a missing input and an empty input as the same thing", () => {
+    expect(actionInputHash("t", undefined)).toBe(actionInputHash("t", {}));
+  });
+
+  it("distinguishes a nested value from its string form", () => {
+    expect(actionInputHash("t", { a: [1, 2] })).not.toBe(actionInputHash("t", { a: "1,2" }));
   });
 });
 

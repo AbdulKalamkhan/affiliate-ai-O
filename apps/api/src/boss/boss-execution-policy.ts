@@ -55,7 +55,15 @@ export interface PolicyInput {
   approval: {
     status: string;
     expiresAt?: Date | null;
+    /** Action version this approval was granted against (null = legacy row). */
+    actionVersion?: number | null;
+    /** Digest of the tool+input the approver saw (null = legacy row). */
+    inputHash?: string | null;
   } | null;
+  /** The action's CURRENT version, compared against the approval's. */
+  actionVersion?: number | null;
+  /** Digest of the action's CURRENT tool+input. */
+  currentInputHash?: string | null;
   now?: Date;
 }
 
@@ -72,6 +80,7 @@ export type DenyCode =
   | "APPROVAL_PENDING"
   | "APPROVAL_REJECTED"
   | "APPROVAL_EXPIRED"
+  | "APPROVAL_STALE"
   | "EXECUTION_RACE_LOST";
 
 export interface ToolDefinition extends BossToolContract {
@@ -154,6 +163,38 @@ export const evaluateExecutionPolicy = (input: PolicyInput): PolicyDecision => {
         denyCode: "APPROVAL_EXPIRED",
         nextStatus: "approval_required",
         reason: `Owner approval for tool ${contract.name} is expired — a fresh approval is required`,
+      };
+    }
+    // A version-mismatched approval is rejected AUTOMATICALLY, never inherited.
+    // Without this, mutating an action after it was approved would silently
+    // carry the earlier consent onto the new, unseen intent.
+    if (
+      input.approval.actionVersion != null &&
+      input.actionVersion != null &&
+      input.approval.actionVersion !== input.actionVersion
+    ) {
+      return {
+        allowed: false,
+        denyCode: "APPROVAL_STALE",
+        nextStatus: "approval_required",
+        reason:
+          `Owner approval for tool ${contract.name} was granted against action version ` +
+          `${input.approval.actionVersion} but the action is now version ${input.actionVersion} — ` +
+          `a fresh approval is required`,
+      };
+    }
+    if (
+      input.approval.inputHash != null &&
+      input.currentInputHash != null &&
+      input.approval.inputHash !== input.currentInputHash
+    ) {
+      return {
+        allowed: false,
+        denyCode: "APPROVAL_STALE",
+        nextStatus: "approval_required",
+        reason:
+          `Owner approval for tool ${contract.name} was granted for different action input — ` +
+          `a fresh approval is required`,
       };
     }
     if (input.approval.status !== "approved") {

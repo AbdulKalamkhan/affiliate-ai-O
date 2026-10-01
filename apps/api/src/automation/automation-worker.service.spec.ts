@@ -255,10 +255,38 @@ describe("AutomationWorkerService", () => {
       );
       const counts = await worker.tick();
       const done = await queue.get(job.id);
-      expect(done.output).toMatchObject({ executed: false, status: "denied" });
-      // A policy denial is a real outcome, not a job failure.
-      expect(counts.succeeded).toBe(1);
-      expect(done.status).toBe("succeeded");
+      // A denied action is NOT a succeeded job. The old behaviour recorded
+      // counts.succeeded = 1 for an action that never ran, which made the queue
+      // report healthy work while nothing was executed.
+      expect(counts.succeeded).toBe(0);
+      expect(done.status).toBe("dead_letter");
+      expect(done.lastError).toMatch(/status="denied"/);
+      expect(done.lastError).toMatch(/AUTONOMY_TOO_LOW/);
+      expect(done.output).toBeNull();
+    });
+
+    it("does not retry a policy denial, because retrying cannot change the verdict", async () => {
+      const action = await seedAction("analytics.read", { scope: "revenue" }, 0);
+      const { job } = await queue.enqueue(
+        { handler: "action.execute", payload: { actionId: action.id }, maxAttempts: 3 },
+        OWNER,
+      );
+      const counts = await worker.tick();
+      expect(counts.retried).toBe(0);
+      expect(counts.deadLettered).toBe(1);
+      expect((await queue.get(job.id)).attemptCount).toBe(1);
+    });
+
+    it("does not report an unimplemented tool as a succeeded job", async () => {
+      // affiliate.publish has no handler, so it is skipped, never executed.
+      const action = await seedAction("affiliate.publish", {}, 5);
+      const { job } = await queue.enqueue(
+        { handler: "action.execute", payload: { actionId: action.id } },
+        OWNER,
+      );
+      const counts = await worker.tick();
+      expect(counts.succeeded).toBe(0);
+      expect((await queue.get(job.id)).status).toBe("dead_letter");
     });
 
     it("treats a missing actionId as non-retryable, not a transient failure", async () => {
@@ -270,7 +298,8 @@ describe("AutomationWorkerService", () => {
 
     it("retries a genuinely failed action instead of dead-lettering on the first error", async () => {
       // content.draft with an empty command is a real, retryable handler failure
-      // (the tool throws), not a policy denial.
+      // (the tool throws), not a policy denial. This distinction is the whole
+      // point: `failed` is transient, `denied`/`skipped` are verdicts.
       const action = await seedAction("content.draft", { command: "" }, 3);
       const { job } = await queue.enqueue(
         { handler: "action.execute", payload: { actionId: action.id }, maxAttempts: 3 },

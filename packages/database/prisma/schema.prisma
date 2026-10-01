@@ -215,7 +215,12 @@ model BossAction {
   autonomyLevel    Int      @default(2) // autonomy level the command was evaluated at
   requiredAutonomy Int      @default(2) // tool contract's required autonomy level
   permissionResult String   @default("granted") // granted | denied (autonomy check)
-  status           String   @default("proposed") // proposed -> approval_required -> approved -> executed | failed | denied
+  status           String   @default("proposed") // proposed -> approval_required -> approved -> executing -> executed | failed | denied | skipped | cancelled
+  // Incremented whenever the action's meaning changes (tool or input). An
+  // approval is bound to the version it was granted against, so mutating an
+  // action after approval invalidates that approval instead of silently
+  // inheriting it.
+  version          Int      @default(1)
   createdAt        DateTime @default(now())
 
   approvals    BossApproval[]
@@ -247,11 +252,29 @@ model BossApproval {
   id           String   @id @default(cuid())
   actionId     String
   action       BossAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
-  status       String   @default("pending") // pending | approved | rejected | expired
+  status       String   @default("pending") // pending | approved | rejected | expired | cancelled
   reason       String?
   decidedBy    String?
   decidedAt    DateTime?
   expiresAt    DateTime?
+  // --- What this approval is actually FOR -----------------------------------
+  // An approval that records only "action X is approved" cannot be checked
+  // against the thing that changed. These fields bind the decision to the exact
+  // state the approver saw, so a version bump or an input change invalidates it
+  // automatically instead of inheriting the earlier consent.
+  //   actionType  - the typed tool name
+  //   actionVersion - the BossAction.version this decision was made against
+  //   targetAccount - the account/marketplace the decision is scoped to (nullable)
+  //   targetObject  - the specific object id, e.g. a content asset (nullable)
+  //   inputHash     - digest of the action's tool + input, so a mutated input
+  //                   cannot be smuggled past an already-granted approval
+  //   evidence      - what the approver was shown when deciding
+  actionType    String?
+  actionVersion Int?
+  targetAccount String?
+  targetObject  String?
+  inputHash     String?
+  evidence      Json?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   @@index([actionId, status])
