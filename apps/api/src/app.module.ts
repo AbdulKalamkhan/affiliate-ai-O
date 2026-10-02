@@ -21,6 +21,7 @@ import { AnalyticsModule } from "./analytics/analytics.module";
 import { ApiKeyGuard } from "./security/api-key.guard";
 import { RateLimitGuard } from "./security/rate-limit.guard";
 import { AllExceptionsFilter } from "./observability/http-exception.filter";
+import { CorrelationIdInterceptor } from "./observability/correlation-id.interceptor";
 import { RequestLoggerInterceptor } from "./observability/request-logger.interceptor";
 
 @Module({
@@ -46,6 +47,7 @@ import { RequestLoggerInterceptor } from "./observability/request-logger.interce
     { provide: APP_GUARD, useClass: ApiKeyGuard },
     { provide: APP_GUARD, useClass: RateLimitGuard },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
+    { provide: APP_INTERCEPTOR, useClass: CorrelationIdInterceptor },
     { provide: APP_INTERCEPTOR, useClass: RequestLoggerInterceptor },
   ],
 })

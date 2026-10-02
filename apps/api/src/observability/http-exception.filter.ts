@@ -24,6 +24,7 @@ import { STATUS_CODES } from "node:http";
 
 import { redactSecrets } from "../ai/ai-redaction";
 import { PRINCIPAL_KEY, type Principal } from "../security/principal";
+import { CORRELATION_ID_REQ_KEY } from "./correlation-id.interceptor";
 
 /** Statuses that are logged at WARN because they indicate abuse or auth failure. */
 export const SECURITY_RELEVANT_STATUSES: readonly number[] = [401, 403, 429];
@@ -33,9 +34,11 @@ export function formatSecurityLog(meta: {
   path: string;
   status: number;
   principalId?: string;
+  correlationId?: string | null;
 }): string {
   const who = meta.principalId && meta.principalId.length > 0 ? ` (principal: ${meta.principalId})` : "";
-  return `${meta.method} ${meta.path} -> ${meta.status}${who}`;
+  const cid = meta.correlationId ? ` [cid=${meta.correlationId}]` : "";
+  return `${meta.method} ${meta.path} -> ${meta.status}${who}${cid}`;
 }
 
 @Catch()
@@ -65,14 +68,24 @@ export class AllExceptionsFilter implements ExceptionFilter {
       }
     }
 
+    const cid = (req as unknown as Record<string, unknown>)[CORRELATION_ID_REQ_KEY] as string | undefined;
     if (status >= 500) {
       const raw = exception instanceof Error ? exception.stack ?? exception.message : String(exception);
-      this.logger.error(`${req.method} ${path} -> ${status}`, redactSecrets(raw));
+      const msg = cid ? `${req.method} ${path} -> ${status} [cid=${cid}]` : `${req.method} ${path} -> ${status}`;
+      this.logger.error(msg, redactSecrets(raw));
     } else if (SECURITY_RELEVANT_STATUSES.includes(status)) {
       // 401/403/429 mean someone was refused or throttled: log them so abuse is
       // visible, without ever recording the credential that was presented.
       const principal = (req as unknown as Record<string, unknown>)[PRINCIPAL_KEY] as Principal | undefined;
-      this.logger.warn(formatSecurityLog({ method: req.method, path, status, principalId: principal?.id }));
+      this.logger.warn(
+        formatSecurityLog({
+          method: req.method,
+          path,
+          status,
+          principalId: principal?.id,
+          correlationId: cid,
+        }),
+      );
     }
 
     res
