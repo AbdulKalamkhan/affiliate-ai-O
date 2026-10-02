@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { Inject } from "@nestjs/common";
 import type { Prisma } from "@ai-os/database";
 import { prisma } from "@ai-os/database";
@@ -13,6 +13,23 @@ import {
 } from "../security/autonomy";
 import { UNRESOLVED_PRINCIPAL, type Principal } from "../security/principal";
 import { generatePlan, evaluatePermission } from "./boss-plan-generator";
+import { buildMemoryCautions } from "./boss-memory-cautions";
+import {
+  BOSS_MEMORY_READER,
+  MEMORY_FAILURE_DEFAULT_LIMIT,
+} from "./boss-memory-reader";
+import type { BossMemoryReader } from "./boss-memory-reader";
+
+/**
+ * Read-only memory reader for plan-time advisories.
+ *
+ * The default is a NULL reader so a caller that does not wire memory gets
+ * byte-identical behaviour to before this increment: zero cautions, and no
+ * access to memory at all.
+ */
+const NO_MEMORY: BossMemoryReader = {
+  getRelevantFailures: async () => [],
+};
 
 export { AUTONOMY_LEVELS, DEFAULT_AUTONOMY_LEVEL };
 export type { AutonomyLevel };
@@ -29,7 +46,10 @@ export interface CreateBossCommandInput {
 
 @Injectable()
 export class BossService {
-  constructor(@Inject(DB_CLIENT) private readonly client: DbClient = prisma as DbClient) {}
+  constructor(
+    @Inject(DB_CLIENT) private readonly client: DbClient = prisma as DbClient,
+    @Optional() @Inject(BOSS_MEMORY_READER) private readonly memory: BossMemoryReader = NO_MEMORY,
+  ) {}
 
   /**
    * A level in the request body is a REQUEST, not an authority. The persisted
@@ -96,7 +116,11 @@ export class BossService {
       });
     }
 
-    const planModel = generatePlan(text);
+    // Past failures become ADVISORY plan-level cautions only. This is a READ:
+    // it cannot lower autonomy, change a required permission, alter approval
+    // semantics, or affect execution, and it never writes back to memory.
+    const planModel = generatePlan(text, await this.planCautions(text));
+
     const plan = await this.client.bossPlan.create({
       data: {
         commandId: command.id,
@@ -104,7 +128,17 @@ export class BossService {
         status: "planned",
       },
     });
-    await this.audit(command.id, "plan", plan.id, "created", { intent: planModel.intent });
+    await this.audit(command.id, "plan", plan.id, "created", {
+      intent: planModel.intent,
+      ...(planModel.cautions.length > 0
+        ? {
+            cautions: planModel.cautions.map((caution) => ({
+              memoryId: caution.memoryId,
+              tool: caution.tool,
+            })),
+          }
+        : {}),
+    });
 
     let order = 0;
     for (const plannedTask of planModel.tasks) {
@@ -148,6 +182,36 @@ export class BossService {
     await this.audit(command.id, "command", command.id, "planned");
 
     return this.get(command.id);
+  }
+
+  /**
+   * Advisory cautions from previously recorded failures, scoped to the tools
+   * this command's plan will actually use. Read-only and best-effort: if the
+   * reader is unavailable, the command still plans with zero cautions rather
+   * than failing, because memory is not authoritative here.
+   */
+  private async planCautions(text: string) {
+    try {
+      const tools = generatePlan(text).tasks.flatMap((plannedTask) =>
+        plannedTask.actions.map((plannedAction) => plannedAction.tool),
+      );
+      const uniqueTools = [...new Set(tools)].sort();
+      const collected = await Promise.all(
+        uniqueTools.map((tool) =>
+          this.memory.getRelevantFailures({ toolName: tool, limit: MEMORY_FAILURE_DEFAULT_LIMIT }),
+        ),
+      );
+      // Deterministic merge: tool order is sorted, so repeated runs agree.
+      const failures = collected.flat().sort((a, b) => {
+        const at = a.observedAt instanceof Date ? a.observedAt.getTime() : 0;
+        const bt = b.observedAt instanceof Date ? b.observedAt.getTime() : 0;
+        if (at !== bt) return bt - at;
+        return a.memoryId.localeCompare(b.memoryId);
+      });
+      return buildMemoryCautions(failures).cautions;
+    } catch {
+      return [];
+    }
   }
 
   async list() {

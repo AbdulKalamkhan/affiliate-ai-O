@@ -7,6 +7,7 @@
 // from boss-tools.ts. Nothing here executes a tool.
 
 import { BossToolName, BossToolInput, toolContract, canUseTool } from "./boss-tools";
+import { MEMORY_CAUTION_LIMIT, type PlanCaution } from "./boss-memory-cautions";
 
 export interface PlannedAction {
   tool: BossToolName;
@@ -22,7 +23,11 @@ export interface GeneratedPlan {
   objective: string;
   intent: string;
   tasks: PlannedTask[];
+  /** Advisory only. Never affects permission, autonomy or execution. */
+  cautions: PlanCaution[];
 }
+
+export type { PlanCaution };
 
 type IntentRule = {
   keywords: string[];
@@ -95,13 +100,21 @@ export const classifyIntent = (text: string): IntentRule =>
   INTENT_RULES.find((rule) => rule.keywords.some((keyword) => text.toLowerCase().includes(keyword))) ??
   FALLBACK_INTENT;
 
-/** Deterministic plan generation — produces structured tasks referencing typed tools. */
-export const generatePlan = (text: string): GeneratedPlan => {
+/**
+ * Deterministic plan generation — produces structured tasks referencing typed tools.
+ *
+ * `cautions` are attached AFTER the fact by `BossService` via
+ * `buildMemoryCautions`. Generation itself is unchanged and authority-free: this
+ * function never consults memory, and the cautions it accepts cannot alter the
+ * tasks, permissions or autonomy it returns.
+ */
+export const generatePlan = (text: string, cautions: PlanCaution[] = []): GeneratedPlan => {
   const rule = classifyIntent(text.trim());
   return {
     objective: rule.objective(text.trim()),
     intent: rule === FALLBACK_INTENT ? "clarify" : rule.keywords[0],
     tasks: rule.tasks(),
+    cautions: cautions.slice(0, MEMORY_CAUTION_LIMIT),
   };
 };
 
