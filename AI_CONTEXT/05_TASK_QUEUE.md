@@ -33,6 +33,13 @@
 - 2026-09-13: TASK 4 — simple opportunity list (opportunities CRUD via API)
 - 2026-09-13: TASK 5 — affiliate link generator (manual tag, no PA-API) + click-tracking redirect
 - 2026-09-25 (MAX-AUTO loop-11): category-A batch — observability (AllExceptionsFilter + request logger), provider-adapter registry + GET /system/providers, research-feed boundary, content fingerprint foundation, Phase-08 Command Center read page, .env.example credential-NAME contract, Phase-09 backup/restore runbook + local restore drill PASS. api tests 157/157 (18 suites); gates green; deployed + verified.
+- 2026-09-26: Phase-01A AI-CEO executor boundary + HITL approvals + seller engine foundation (`fafc11f`); atomic money writes + real `publish_approvals` (replaces QA-01 hardcoded whitelist) + forge-proof audit identity, UNKNOWN not stored as 0 (`21af590`); circular ContentQa/ContentAsset module dependency removed (`82db134`).
+- 2026-09-27: durable DB-backed automation queue + worker + honest replay (`81adce6`, migrations `20260927074618` + `20260927083914`); provider-neutral fail-closed AI boundary (`5f83f0d`, migration `20260927092952`); money truth UNKNOWN != 0 (`97f0cf3`); money-integrity + real CAS + honest marketplace states security batch (`8729613`); unified `/analytics` with per-metric evidence states (`f71cfcd`); seller per-component cost lines + settlement idempotency (`83a30f7`, migration `20260927125000`); Seller Control Center page + measured connection counts (`8e1fecd`).
+- 2026-09-28: server-side autonomy ceiling — `effective = min(declared, OPERATOR_AUTONOMY_CEILING)`, level 5 owner-only (`1abfe7a`); executor atomicity (CAS claim) + `executing`/`cancelled` + 5xx stack redaction (`d083c1c`).
+- 2026-10-01: approvals bound to action version + input hash (APPROVAL_STALE) + automation outcome honesty — only `executed` is a job success (`789c30c`, migration `20260928201500`).
+- 2026-10-02: advisory, read-only, bounded Boss memory cautions (`d859cfc`); correlation ID propagation + logging context (`b5c7704`); minimal safe CI workflow — typecheck/lint/tests/builds/prisma validate (`176e2ff`); post-engineering owner actions doc (`0e247fd`); owner business activation checklist (`976cab4`).
+- 2026-10-04: weekly business review template — evidence-only, no inference (`d6aca32`).
+- 2026-10-09: DOC-01 documentation reconciliation (this update) — AI_CONTEXT synced to verified repo state: api 588/588 tests (34 suites), web 7/7, 14 migrations, both Render services live, Phase-00 still BLOCKED on Amazon Associates evidence.
 
 ## Blocker matrix — remaining work after the 2026-09-25 final sweep (Categories B/C/D)
 

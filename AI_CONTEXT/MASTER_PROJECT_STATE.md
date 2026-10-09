@@ -1,5 +1,7 @@
 # MASTER_PROJECT_STATE.md
 
+**DOC-01 RECONCILIATION NOTE (2026-10-09):** The `Field | Value` table below is a RETAINED HISTORICAL SNAPSHOT last fully true on 2026-09-26. Its test figure (157), migration figure (5) and feature list predate the 2026-09-26 to 2026-10-04 work (executor/HITL approvals, seller engine, automation queue, AI boundary, unified analytics, seller cost lines, security batches, autonomy ceiling, approval scoping, correlation IDs, memory cautions, CI). **Authoritative current values are in the "STATE RECONCILIATION - 2026-10-09" section at the end of this file.** Do not quote the snapshot rows as current.
+
 **The system should always be able to answer these from this file + 03_DEVELOPMENT_STATUS.md:**
 
 | Field | Value |
@@ -10,8 +12,8 @@
 | Active Campaigns | Campaign #3 — `dhruvs-nazariya-anklet-c3` (DHRUVS COLLECTION 925 Sterling Silver Nazariya Anklet, ASIN B08BG1HC7R). Affiliate link `cmucz87hk0000ah1gi1dnep0r`; content asset `cmuczfp6y0002ah1g7fjqmuxd`; disclosureAdded=true; **published=true (VERIFIED via Owner-authenticated read-back 2026-09-25)**; Pinterest Pin live — https://pin.it/7resx0jwa (short URL; canonical Pin ID UNKNOWN); Pinterest-attributed clicks=4; conversions=0; revenue ₹0; profit ₹0. Old Campaign #1 (GIVA hoop earrings B09DGJR1Z7) and Campaign #2 (GIVA Toe Rings B09DGKCSH8) remain DELETED/retired (2026-09-22 cleanup) |
 | Content Channel | Pinterest — manual publishing wired (TASK 6); no API; manual Owner-controlled publication |
 | Pending Approvals | 1) NONE for Campaign #3 (publication approved + recorded). 2) Commission % for Campaign #3 UNVERIFIED until supported by provider/network evidence |
-| Current Revenue | ₹0 |
-| Current Profit | ₹0 |
+| Current Revenue | UNKNOWN (no reconciled revenue event recorded; dashboard renders "Awaiting data", never a fabricated 0) |
+| Current Profit | UNKNOWN (no reconciled revenue event recorded; dashboard renders "Awaiting data", never a fabricated 0) |
 | Best Opportunity | Campaign #3 (dhruvs-nazariya-anklet-c3, B08BG1HC7R) — LIVE (published, 4 Pinterest-attributed clicks, 0 conversions); recorded price ₹1,424 point-in-time (not guaranteed current) |
 | Worst Opportunity | N/A (single live campaign; 4 clicks, 0 conversions yet) |
 | Recent Failures | None yet (2 transient build failures fixed during scaffold; web typecheck race with .next/types when forcing caches) |
@@ -21,3 +23,37 @@
 | Next Recommended Action | MONEY WATCH MODE: Campb #3 is live and tracking real Pinterest-attributed clicks (4). WAIT for real traffic → click → Amazon purchase → verified Associates conversion → commission. When verified evidence arrives, record it via the now-ready sanctioned path: POST /revenue-events (pending, idempotent on provider+sourceId) → POST /revenue-events/:id/reconcile (ProfitRecord netProfit=gross−fee−cost, status reconciled). Phase-01 Boss core (Owner-override), Phase-02 Opportunity Intelligence core (Owner max-autonomy), Phase-03 revenue-concentration KPI + dashboard widget, and Phase-04 Content QA engine + QA-01 safe enforcement (Owner max-autonomy) are implemented + tested. Final completion sweep done + RESTART extended 2026-09-25 — safe local work is now genuinely exhausted (see 05_TASK_QUEUE blocker matrix); PHASE-06 campaign-analytics slice is the last deterministic evidence-only build. Do NOT start Campaign #4, do NOT expand architecture, do NOT optimize based on only 4 clicks without new evidence. For every new session: read the dashboard read-back (contentAssets=1, publishedAssets=1, clicks=N, conversions=N, revenue, profit) and record only real evidence. FRONTEND UI delivered 2026-09-26. OWNER ACTION: paste the same API_KEY into Render `ai-os-web` env (sync:false) to unlock live data in the web dashboards |
 
 **Update this table every session — it's the fastest orientation point for both the agent and the Owner.**
+
+---
+
+## STATE RECONCILIATION - 2026-10-09 (DOC-01)
+
+Verified on 2026-10-09 against the repository (branch `main`, commit `d6aca32`, working tree clean, up to date with `origin/main`) and read-only production probes. The table above is a historical snapshot (last fully true 2026-09-26); where it disagrees with this section, this section is authoritative.
+
+| Field | Verified current value (2026-10-09) |
+|---|---|
+| Current Phase | As above PLUS: PHASE-01A AI-CEO executor + HITL approvals + seller engine; PHASE-05 durable DB-backed automation queue + worker; AI provider boundary; unified `/analytics` with per-metric evidence states; seller per-component cost lines + Seller Control Center; security batches (money integrity, server-side autonomy ceiling, executor atomicity, approval scoping/staleness); observability correlation IDs; advisory Boss memory cautions. PHASE-00 REMAINS BLOCKED on external Amazon Associates evidence. |
+| Current Build Status | api **588 jest tests PASS (34 suites)**; web **7/7 PASS**; typecheck **4/4**; lint **3/3**; build **3/3**. Turborepo green. |
+| Migrations | **14** migrations; local DB up to date (`prisma migrate status`). Latest: `20260928201500_approval_scoping_and_action_version`. (Snapshot's "5 migrations" is stale.) |
+| Deployed services | BOTH LIVE: `ai-os-api` (https://ai-os-api-1eck.onrender.com) and `ai-os-web` (https://ai-os-web.onrender.com). |
+| AI Provider Status | AI provider boundary IMPLEMENTED + TESTED; all adapters report `not_configured` (no real LLM credential) and calls fail closed with NOT_CONFIGURED. `anthropic`/`google` have no adapter. |
+| Provider configuration | Only `ASSOCIATE_TAG` (and `DATABASE_URL`) present in local `.env`. No PA-API, second-network, n8n, research-feed, AI or seller-marketplace credentials. No marketplace connected (`IMPLEMENTED_NOT_CONNECTED`). |
+| System Health | prod `/health` 200 `{"status":"ok","service":"@ai-os/api","database":"ok"}` (2026-10-09T08:47Z); protected routes 401 fail-closed (incl. /analytics/*, /ai/*, /automation/*, /seller/*, /boss/*); public click redirect 404-on-missing. |
+| Money / business state | Campaign #3 live: **4 verified Pinterest-attributed clicks, 0 verified conversions**. Revenue / commission / costs / profit = **UNKNOWN** (no reconciled revenue event) — NOT 0. Tracking ID `zorajewellery-21`. Amazon Associates report not supplied. |
+| Next Recommended Action | Money-watch. Owner supplies the Amazon Associates report for `zorajewellery-21`; if a real conversion/commission exists, record via `POST /revenue-events` (pending, idempotent on `[provider, sourceId]`) then `POST /revenue-events/:id/reconcile`. The previous action item ("paste API_KEY into Render `ai-os-web`") is **DONE** (live-data E2E 2026-09-26). |
+
+### Additions to Recent Wins (2026-09-26 to 2026-10-04)
+- AI CEO executor boundary + HITL approvals + seller engine foundation (commit `fafc11f`); atomic money writes + real `publish_approvals` + forge-proof audit identity (commits `21af590`, `8729613`).
+- Durable DB-backed automation queue + worker with honest replay (commit `81adce6`, migrations `20260927074618` + `20260927083914`).
+- Provider-neutral AI boundary, fail-closed (commit `5f83f0d`, migration `20260927092952`).
+- Money truth: UNKNOWN is not zero (`97f0cf3`); unified analytics with per-metric evidence states (`f71cfcd`).
+- Seller per-component durable cost lines + settlement idempotency (`83a30f7`); Seller Control Center page (`8e1fecd`).
+- Server-side autonomy ceiling (`1abfe7a`); atomic action execution + cancel + 5xx stack redaction (`d083c1c`); approval version/input scoping + automation outcome honesty (`789c30c`).
+- Advisory, read-only, bounded Boss memory cautions (`d859cfc`); correlation ID propagation (`b5c7704`).
+- Owner action/business docs + weekly review template (`0e247fd`, `976cab4`, `d6aca32`); minimal safe CI workflow (`176e2ff`).
+
+### Remaining blockers (unchanged; no fabrication)
+- **Phase-00 business gate (critical path):** real Amazon Associates conversion + commission evidence for `zorajewellery-21`.
+- **External credentials / eligibility:** Amazon PA-API (needs 10 qualifying sales/30d; account has 0), second affiliate network (gated behind Money-First MVP gate), n8n automation, research/trends feed, AI provider, Amazon Seller / Flipkart / Meesho marketplaces.
+- **Owner decisions:** enable automation worker (`AUTOMATION_WORKER_ENABLED`) / raise autonomy ceiling only if desired; resolve the alternate hostname `ai-os-api.onrender.com` (a different Render service); optionally grant a production `API_KEY` for authenticated read-back.
+- **Known technical follow-up (documented, not yet done):** add `@@unique([platform, externalId])` to `SellerSettlement` (`packages/database/prisma/schema.prisma`) — deliberately deferred until production has been checked for duplicate settlements; service-level idempotency already exists.

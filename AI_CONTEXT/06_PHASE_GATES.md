@@ -167,3 +167,115 @@ Regression: PASS (all prior 121 tests still green)
 Memory updated: YES (03, 05, 06, 10, 11, MASTER)
 Evidence recorded: YES (tests + this report + production smoke)
 Final gate: IN PROGRESS — all authorized local engineering for Phases 01-04 complete + verified + live. Business gate (Phase-00) remains BLOCKED on external Amazon Associates evidence (Category C). Remaining roadmap work is external/Owner-dependent (Categories B/D) — see 05_TASK_QUEUE blocker matrix. PROJECT not COMPLETE until Phase-00 passes.
+
+---
+
+**Gate report - 2026-09-26 (Phase-01A executor + HITL approvals + seller engine; money integrity)**
+PHASE: 01A / Seller Foundation + money-integrity batch
+Objective: typed actions progress through an auditable, policy-gated lifecycle; money writes atomic and auditable; UNKNOWN never stored as 0
+Repository evidence: apps/api/src/boss/boss-executor.service.ts, boss-execution-policy.ts, boss-tool-registry.ts, boss-approval.service.ts, boss-memory.service.ts; apps/api/src/seller/*; apps/api/src/security/principal.ts; migrations `20260926101432`, `20260926101500`, `20260926110000` (publish_approvals), `20260926110012` (seller settlement unknown-safe)
+Changes made: proposed -> approval_required -> approved -> executed|failed|denied|skipped with `boss_tool_calls`; mandatory Owner approval for ANY external side effect (even at autonomy 5); `affiliate.publish` honestly `not_implemented` (executor records `skipped`, never fake success). Money paths atomic (DbClient requires `$transaction`); every money write audited (`verb=money_write`). QA-01 hardcoded whitelist REPLACED by a real `publish_approvals` table (additive migration `20260926110000`), live Campaign #3 approval migrated idempotently. Authenticated principal read via `@CurrentPrincipal()`; `decidedBy`/`approvedBy` cannot be spoofed.
+Tests: PASS (255/255, 23 suites; 167 -> 233 in the executor batch, then 255 after money integrity)  Typecheck/Lint/Build: PASS  Database: PASS (prisma validate; migrations additive)
+Security: PASS (forge-proof audit identity; approval identity from verified credential)  Regression: PASS
+Amazon compliance check: PASS for QA enforcement. No conversion/commission evidence supplied - nothing recorded, NOTHING fabricated. Phase-00 unchanged (BLOCKED, 4 clicks, 0 conversions, revenue/profit UNKNOWN).
+Final gate: IN PROGRESS - executor/approvals/seller foundations complete + tested. Phase-00 REMAINS BLOCKED on external Amazon Associates evidence.
+
+---
+
+**Gate report - 2026-09-27 (Phase-05 durable automation queue + worker)**
+PHASE: 05 (slice) - durable DB-backed job queue
+Objective: repeatable workflow execution with retries, idempotency, dead-letter handling - without a fake broker
+Repository evidence: apps/api/src/automation/*; migrations `20260927074618_automation_job_queue`, `20260927083914_automation_job_replay_count`
+Changes made: AutomationJob/AutomationAttempt lifecycle queued/running/succeeded/failed/dead_letter/cancelled; CAS claiming; exponential backoff + jitter; non-retryable failures dead-letter immediately without burning attempts; `@@unique([handler, idempotencyKey])`; worker OFF by default (`AUTOMATION_WORKER_ENABLED`); autonomy ceiling default 0, not inherited; `marketplace.sync` `not_implemented`; `action.execute` delegates to the real executor. Replay idempotency defects found by a live built-API probe and fixed (monotonic `replayCount`; concurrent-enqueue P2002 returns the winner; graceful-shutdown lock release + CAS).
+Tests: PASS (383, 27 suites)  Typecheck/Lint/Build: PASS  Database: PASS (prisma validate; migrate status up to date, 11 migrations)
+Security: PASS (401 fail-closed verified against the running build; queueing cannot bypass autonomy/approval/terminal state)
+Final gate: IN PROGRESS - automation queue/worker slice complete + tested. No Redis/BullMQ/n8n connected; worker not enabled in production (deliberate). Phase-00 REMAINS BLOCKED.
+
+---
+
+**Gate report - 2026-09-27 (AI provider boundary, fail-closed)**
+PHASE: 09 (slice) - provider-neutral AI boundary
+Objective: the only sanctioned path to an LLM, structurally unable to mutate business state, honest about cost/verification
+Repository evidence: apps/api/src/ai/* (ai.service.ts, ai-provider.registry.ts, providers/http-ai.provider.ts, ai-redaction.ts, ai-types.ts); migration `20260927092952_ai_provider_boundary`
+Changes made: `AiService` writes exactly one table (`ai_invocations`); no credential => `not_configured` => fail closed with `NOT_CONFIGURED`; `verified` only from a successful real call; cost null until `AI_MODEL_PRICES_JSON`; token counts provider-sourced or null, never 0; secrets redacted. Seven real defects found and fixed (empty runtime registry; local adapter name collision; typed AiError mapping; hardcoded autonomy; silent provider drop; `toInt(null)` -> 0; redactor global-regex offset bug).
+Tests: PASS (460/460, 30 suites)  Typecheck/Lint/Build: PASS  Database: PASS (prisma validate; 12 migrations up to date)
+Security: PASS (fail-closed 401; refused calls audited; exact redaction verified)  Regression: PASS
+Final gate: IN PROGRESS - AI boundary complete + tested. No LLM credential configured; no provider verified; no real model output exists. Phase-00 REMAINS BLOCKED.
+
+---
+
+**Gate report - 2026-09-27 (money truth UNKNOWN != 0; unified analytics with per-metric evidence)**
+PHASE: 00 / 09 - measurement honesty
+Objective: never present an absent measurement as a measured zero; every analytics number carries its own evidence state
+Repository evidence: apps/api/src/dashboard/dashboard.service.ts (`sumOrNull`); apps/api/src/campaign-analytics/* (`hasRevenueEvidence`/`hasProfitEvidence`); apps/api/src/analytics/*; apps/web/app/_ui/format.ts (`UNKNOWN_LABEL`, `moneyOrUnknown`, `countOrUnknown`)
+Changes made: money totals null when zero reconciled rows (genuine 0 when rows sum to 0); web renders "Awaiting data" for UNKNOWN; `MetricValue` with `evidenceState` + `provenance` + `note`; half-open windows + IANA timezone echoed on every response; conversion rate only when both terms exist; `sumKnown()` refuses partial totals; seller `liveSync` separated from recorded evidence. Test-infra defects fixed (fake-db `_sum` 0 for empty set; first-comparator-only ranges; missing `@default(now())`; window-ignoring channel/campaign clicks).
+Tests: PASS (462 -> 503/503, 32 suites; +7/7 web)  Typecheck/Lint/Build: PASS  Database: PASS (prisma validate)
+Security: PASS (read-only aggregation; all routes behind APP_GUARD)
+Final gate: IN PROGRESS - measurement-honesty + analytics slices complete + tested. Phase-00 business state preserved (4 clicks, 0 conversions, money UNKNOWN). Phase-00 REMAINS BLOCKED.
+
+---
+
+**Gate report - 2026-09-27 (security / money-integrity batch)**
+PHASE: 00 security batch
+Objective: no system may report certainty it does not have (audit identity, CAS semantics, marketplace connection states)
+Repository evidence: apps/api/src/revenue/revenue.controller.ts, seller/seller.controller.ts, security/principal.ts, automation/cas.ts, seller/marketplace/*, seller/returns
+Changes made: audit identity from authenticated principal (not request body); `CurrentPrincipal` no longer fails open to owner; real Prisma P2025 CAS handling across five sites (with the fake DB throwing P2025); marketplace `configured_not_verified`/`NOT_VERIFIED` (409) vs absent creds (428); `/marketplaces/:m/sync` no longer returns fake HTTP 200; `recordReturn` transactional + audited + idempotent; `recordSettlement` runtime money validation (rejects NaN); cogs/shipping/otherCosts stored in audit detail; inventory missing-row reports `evidenceState` UNKNOWN.
+Tests: PASS (470/470, 31 suites; mutation checks prove the guards bite)  Typecheck/Lint/Build: PASS
+Security: PASS  Regression: PASS
+Final gate: IN PROGRESS. Phase-00 REMAINS BLOCKED.
+
+---
+
+**Gate report - 2026-09-27 (seller durable cost lines + Seller Control Center)**
+PHASE: 00/01A seller slices
+Objective: net profit re-derivable from the settlement; the seller domain visible and truthfully rendered
+Repository evidence: SellerSettlementLine model (migration `20260927125000_add_seller_settlement_lines`); apps/api/src/seller/*; apps/web/app/seller/page.tsx
+Changes made: per-component durable lines (kind, nullable amount = UNKNOWN never 0, source, note) written in the same transaction as the settlement + audit; `GET /seller/settlements/:id/lines` with per-line `evidenceState`; settlements idempotent on `(platform, externalId)` with `externalId` now REQUIRED; `/analytics/overview` COGS window-scoped and UNKNOWN unless every settlement states it. `/seller` page (read-only, evidence-first). API fix: `GET /seller/overview` hardcoded `connectedMarketplaces: 0` now counts verified connections from `MarketplaceRegistryService.status()`.
+KNOWN FOLLOW-UP: a unique index on `(platform, externalId)` is deliberately NOT added yet - deferred until production duplicates are checked (a failing index build would block deploys). Service-level idempotency already exists.
+Tests: PASS (512 -> 514/514, 32 suites; +7/7 web)  Typecheck/Lint/Build: PASS  Database: PASS (additive migration only)
+Final gate: IN PROGRESS - seller cost lines + control center complete + tested. Phase-00 REMAINS BLOCKED.
+
+---
+
+**Gate report - 2026-09-28 (autonomy ceiling + executor atomicity)**
+PHASE: 01 security hardening
+Objective: close the autonomy-escalation and concurrent-execution audit findings
+Repository evidence: apps/api/src/security/autonomy.ts (+ spec), boss-executor.service.ts, boss-execution.controller.ts, observability/http-exception.filter.ts
+Changes made: `security/autonomy.ts` is the single authority (`effective = min(declared, OPERATOR_AUTONOMY_CEILING)`; absent/unparseable -> 2; level 5 requires owner principal AND `AUTONOMY_ALLOW_OWNER_LEVEL=true`; `autonomy_clamped` audit row; `/ai/status` autonomy block). Wired into Boss create/update + `AiController.invoke`; PATCH no longer bypasses. Executor claim is now a compare-and-set to `executing` (loser refused `EXECUTION_RACE_LOST`); added `executing`/`cancelled` + `POST /boss/actions/:id/cancel`; 5xx stack logs pass through `redactSecrets`. Fixed two latent defects (refused-level-5 ignored ceiling; `0..1..2..3..4..5` message) and a time-bomb analytics test (`makeFakeDb({ now })`).
+Tests: PASS (538 -> 550/550, 33 suites; +7/7 web)  Typecheck/Lint/Build: PASS
+Security: PASS (RULE 10 enforced server-side; exactly-one side effect under concurrency)
+Final gate: IN PROGRESS. Phase-00 REMAINS BLOCKED.
+
+---
+
+**Gate report - 2026-10-01 (approval scoping + automation outcome honesty)**
+PHASE: 01 security hardening
+Objective: approval must bind to the exact action version + input; a job success must mean something actually ran
+Repository evidence: apps/api/src/boss/approval-scope.ts, boss-execution-policy.ts, boss-approval.service.ts; migration `20260928201500_approval_scoping_and_action_version`; apps/api/src/automation/*
+Changes made: `BossAction.version` + `BossApproval.{actionType,actionVersion,targetAccount,targetObject,inputHash,evidence}` (all nullable; defaults match pre-existing rows). `actionInputHash()` = sha256 over tool + key-order-stable input JSON. Policy denies `APPROVAL_STALE` on version/digest mismatch on EVERY execution attempt; `decide()` refuses to approve a stale approval; `requestForAction` replaces a stale pending request; legacy rows treated as current. Automation: only `executed` is a job success; `failed` stays retryable; other non-successes dead-letter immediately (previously denied/skipped actions left `succeeded` jobs).
+Tests: PASS (567/567, 33 suites; +7/7 web)  Typecheck/Lint/Build: PASS  Database: PASS (prisma valid)
+Security: PASS (version-mismatched approval auto-rejected; no fake queue success)
+Final gate: IN PROGRESS. Phase-00 REMAINS BLOCKED.
+
+---
+
+**Gate report - 2026-10-02 (advisory memory cautions + correlation IDs + CI)**
+PHASE: 01 / 09 + repo tooling
+Objective: advisory, bounded memory context; request correlation; safe CI verification
+Repository evidence: apps/api/src/boss/boss-memory-cautions.ts (+ spec), boss-memory-reader.ts, boss.service.ts, boss.module.ts; apps/api/src/observability/{correlation.ts,correlation-id.interceptor.ts}, request-logger.interceptor.ts, http-exception.filter.ts; apps/api/src/app.module.ts; .github/workflows/ci.yml
+Changes made: `BossMemoryReader` (read-only, narrow interface) + plan-level caution builder (<=3 cautions, one per tool, advisory wording, no payload leakage), wired into `BossService` with NO autonomy/permission/execution authority change. Correlation IDs generated once at the HTTP boundary, preserved if valid, logged via `formatLogLine`, attached to error/security logs; never returned to the client. CI workflow added (typecheck, lint, API+web tests, API+web builds, prisma validate; no deploy, no secrets).
+Tests: PASS (588/588, 34 suites; +7/7 web)  Typecheck/Lint/Build: PASS
+Security: PASS (memory cautions are advisory only; correlation IDs carry no secrets)
+Final gate: IN PROGRESS. Phase-00 REMAINS BLOCKED.
+
+---
+
+**Gate report - 2026-10-04 / 2026-10-09 (owner docs + DOC-01 reconciliation; QA-01 SUPERSESSION note)**
+PHASE: 00 documentation / reconciliation
+Objective: sync AI_CONTEXT with verified repo state without altering code/schema/env/production
+Repository evidence: `0e247fd` (post-engineering owner actions), `176e2ff` (CI), `976cab4` (owner business activation), `d6aca32` (weekly business review template); this DOC-01 reconciliation (10_CHANGE_HISTORY, MASTER_PROJECT_STATE, 05_TASK_QUEUE, 08_INTEGRATIONS, 06_PHASE_GATES).
+SUPERSESSION NOTE: the earlier 2026-09-25 Phase-04 entry that describes a `PRE_APPROVED_PUBLISH_ASSET_IDS` whitelist is historical. That hardcoded whitelist was REPLACED on 2026-09-26 by the `publish_approvals` table + `PublishApprovalService` (migration `20260926110000_add_publish_approvals`), with the live Campaign #3 asset's approval migrated idempotently. Enforcement remains: a fresh unpublished -> published transition is rejected (422 + verdict) unless BOTH QA gates pass.
+Tests (verified 2026-10-09): PASS (588/588 API, 34 suites; 7/7 web; typecheck 4/4; lint 3/3; build 3/3; prisma validate; migrate status 14/14). Production: /health 200 database=ok; protected routes 401 fail-closed; public click route 404-on-missing.
+Changes made: documentation only. No application code, schema, migration, environment variable or production change.
+Amazon compliance check: PASS for QA enforcement. Real conversion/commission NOT verified - nothing fabricated.
+Final gate: IN PROGRESS - all recorded local engineering through 2026-10-04 is complete + verified + documented. Phase-00 REMAINS BLOCKED on external Amazon Associates evidence (tracking ID `zorajewellery-21`).
