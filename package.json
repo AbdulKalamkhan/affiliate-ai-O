@@ -33,7 +33,8 @@
   "overrides": {
     "next": {
       "postcss": "8.5.28"
-    }
+    },
+    "proxy-addr": "2.0.8"
   },
   "allowScripts": {
     "@prisma/client@6.19.3": true,

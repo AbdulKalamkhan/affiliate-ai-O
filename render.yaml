@@ -19,6 +19,8 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "24"
+      - key: HOST
+        value: "0.0.0.0"
       - key: ASSOCIATE_TAG
         value: zorajewellery-21
       - key: API_KEY

@@ -91,4 +91,58 @@ describe("RateLimitGuard", () => {
     }
     expect(get("client-10_200")).toBe(true);
   });
+
+  it("uses the first IPv4-mapped IPv6 entry when req.ip is absent", () => {
+    const guard = new RateLimitGuard();
+    const ctx = {
+      switchToHttp: () => ({
+        getRequest: () => ({
+          method: "PUT",
+          headers: { "x-forwarded-for": "::ffff:203.0.113.7, ::ffff:198.51.100.9" },
+        }),
+      }),
+    } as never;
+    for (let i = 0; i < 10; i += 1) {
+      expect(guard.canActivate(ctx)).toBe(true);
+    }
+    expect(() => guard.canActivate(ctx)).toThrow(HttpException);
+  });
+
+  it("ignores a spoofed IPv4-mapped IPv6 X-Forwarded-For when req.ip is present", () => {
+    const guard = new RateLimitGuard();
+    const ctxWithHeader = (header: string) =>
+      ({
+        switchToHttp: () => ({
+          getRequest: () => ({
+            method: "PATCH",
+            ip: "203.0.113.99",
+            headers: { "x-forwarded-for": header },
+          }),
+        }),
+      }) as never;
+    // A rotating spoofed header must not mint a fresh identity per request:
+    // the window stays keyed on the server-computed req.ip.
+    for (let i = 0; i < 10; i += 1) {
+      expect(guard.canActivate(ctxWithHeader(`::ffff:10.0.0.${i}`))).toBe(true);
+    }
+    expect(() => guard.canActivate(ctxWithHeader("::ffff:10.0.0.99"))).toThrow(HttpException);
+  });
+
+  it("scopes the fallback IPv4-mapped header per distinct first entry", () => {
+    const guard = new RateLimitGuard();
+    const ctxFor = (first: string) =>
+      ({
+        switchToHttp: () => ({
+          getRequest: () => ({
+            method: "POST",
+            headers: { "x-forwarded-for": `${first}, 198.51.100.1` },
+          }),
+        }),
+      }) as never;
+    for (let i = 0; i < 10; i += 1) {
+      guard.canActivate(ctxFor("::ffff:192.0.2.10"));
+    }
+    expect(() => guard.canActivate(ctxFor("::ffff:192.0.2.10"))).toThrow(HttpException);
+    expect(guard.canActivate(ctxFor("::ffff:192.0.2.11"))).toBe(true);
+  });
 });
